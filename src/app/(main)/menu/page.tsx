@@ -1,6 +1,8 @@
 import { consumptionMethodEnum, type ConsumptionMethod } from "@/db/schema";
 import { notFound } from "next/navigation";
 import RestaurantHeader from "./_components/header";
+import RestaurantCategories from "./_components/categories";
+import { db } from "@/db";
 
 interface MenuPageProps {
   searchParams: {
@@ -13,6 +15,12 @@ const consumptionMethodValid = (consumptionMethod: ConsumptionMethod) => {
 };
 
 const MenuPage = async ({ searchParams }: MenuPageProps) => {
+  const restaurant = await db.query.menuCategories.findMany({
+    with: {
+      products: true,
+    },
+  });
+
   const { consumptionMethod } = await searchParams;
   if (!consumptionMethodValid(consumptionMethod)) {
     return notFound();
@@ -21,6 +29,7 @@ const MenuPage = async ({ searchParams }: MenuPageProps) => {
   return (
     <>
       <RestaurantHeader />
+      <RestaurantCategories categories={restaurant} />
     </>
   );
 };

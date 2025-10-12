@@ -1,0 +1,48 @@
+import type { products } from "@/db/schema";
+import type { InferSelectModel } from "drizzle-orm";
+import Image from "next/image";
+import Link from "next/link";
+import { formatBRL } from "@/app/utils/format-currency-value";
+
+type MenuProduct = InferSelectModel<typeof products>;
+
+interface ProductsProps {
+  products: MenuProduct[];
+}
+
+const Products = ({ products }: ProductsProps) => {
+  return (
+    <div className="space-y-3 px-5">
+      {products.map((product) => (
+        <Link
+          key={product.id}
+          href="/"
+          className="flex items-center justify-between gap-10 border-b py-3"
+        >
+          {/* ESQUERDA */}
+          <div>
+            <h3 className="text-sm font-medium">{product.name}</h3>
+            <p className="text-muted-foreground line-clamp-2 text-sm">
+              {product.description}
+            </p>
+            <p className="pt-3 text-sm font-semibold">
+              {formatBRL(product.price)}
+            </p>
+          </div>
+
+          {/* DIREITA */}
+          <div className="relative min-h-[82px] min-w-[120px]">
+            <Image
+              src={product.imageUrl}
+              alt={product.name}
+              fill
+              className="rounded-lg object-contain"
+            />
+          </div>
+        </Link>
+      ))}
+    </div>
+  );
+};
+
+export default Products;
