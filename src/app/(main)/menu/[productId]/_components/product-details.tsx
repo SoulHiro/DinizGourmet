@@ -1,0 +1,94 @@
+"use client";
+import { formatBRL } from "@/app/utils/format-currency-value";
+import { Button } from "@/components/ui/button";
+import type { MenuProduct } from "@/types/restaurant";
+import { ChefHatIcon, ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
+import Image from "next/image";
+import { useState } from "react";
+
+interface ProductDetailsProps {
+  product: MenuProduct;
+}
+
+const ProductDetails = ({ product }: ProductDetailsProps) => {
+  const [quantity, setQuantity] = useState(1);
+
+  const handleDecreaseQuantity = () => {
+    if (quantity > 1) {
+      setQuantity(quantity - 1);
+    }
+  };
+
+  const handleIncreaseQuantity = () => {
+    setQuantity(quantity + 1);
+  };
+
+  return (
+    <div className="relative z-50 mt-[-1.5rem] flex flex-auto flex-col space-y-4 rounded-t-3xl p-2">
+      <div className="flex-auto">
+        {/* LOGO E TITULO */}
+        <div className="flex items-center gap-1.5 p-5">
+          <Image
+            src="/logo/DinizGourmet(Logo).webp"
+            alt="Diniz Gourmet"
+            width={16}
+            height={16}
+            className="rounded-full"
+          />
+          <p className="text-muted-foreground text-xs">Diniz Gourmet</p>
+        </div>
+
+        <div>
+          {/* NOME DO PRODUTO */}
+          <h2 className="text-xl font-semibold">{product.name}</h2>
+
+          {/* PREÇO E QUANTIDADE */}
+          <div className="itmes-center flex justify-between">
+            <h3 className="text-xl font-semibold">
+              {formatBRL(product.price)}
+            </h3>
+            <div className="text-tenter flex items-center gap-3">
+              <Button
+                variant="outline"
+                className="h-8 w-8 rounded-xl"
+                disabled={quantity <= 1}
+                onClick={handleDecreaseQuantity}
+              >
+                <ChevronLeftIcon />
+              </Button>
+              <p className="w-4 text-center">{quantity}</p>
+              <Button
+                variant="destructive"
+                className="h-8 w-8 rounded-xl"
+                onClick={handleIncreaseQuantity}
+              >
+                <ChevronRightIcon />
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* SOBRE */}
+        <div className="space-y-2">
+          <h4 className="font-semibold">Sobre</h4>
+          <p className="text-muted-foreground text-sm">{product.description}</p>
+        </div>
+
+        {/* INGREDIENTES*/}
+        <div className="space-y-2">
+          <div className="flex items-center gap-1">
+            <ChefHatIcon size={18} />
+            <h4 className="font-semibold">Ingredientes</h4>
+          </div>
+          <p className="text-muted-foreground text-sm">
+            {product.ingredients.join(", ")}
+          </p>
+        </div>
+      </div>
+
+      <Button className="w-full rounded-full">Adicionar à sacola</Button>
+    </div>
+  );
+};
+
+export default ProductDetails;

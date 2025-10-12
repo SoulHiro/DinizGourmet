@@ -1,10 +1,7 @@
-import type { products } from "@/db/schema";
-import type { InferSelectModel } from "drizzle-orm";
 import Image from "next/image";
 import Link from "next/link";
 import { formatBRL } from "@/app/utils/format-currency-value";
-
-type MenuProduct = InferSelectModel<typeof products>;
+import type { MenuProduct } from "@/types/restaurant";
 
 interface ProductsProps {
   products: MenuProduct[];

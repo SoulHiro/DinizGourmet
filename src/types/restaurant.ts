@@ -4,3 +4,5 @@ import type { InferSelectModel } from "drizzle-orm";
 export type MenuCategory = InferSelectModel<typeof menuCategories> & {
   products: InferSelectModel<typeof products>[];
 };
+
+export type MenuProduct = InferSelectModel<typeof products>;

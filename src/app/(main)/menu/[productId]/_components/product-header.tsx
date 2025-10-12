@@ -1,7 +1,7 @@
 "use client";
 import { Button } from "@/components/ui/button";
 import { ChevronLeftIcon, ShoppingCartIcon } from "lucide-react";
-import router, { useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
 
 interface ProductHeaderProps {
