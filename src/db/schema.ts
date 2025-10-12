@@ -21,8 +21,11 @@ export const orderStatusEnum = pgEnum("order_status", [
 
 export const consumptionMethodEnum = pgEnum("consumption_method", [
   "TAKEAWAY",
-  "DINE_IN",
+  "DELIVERY",
 ]);
+
+export type ConsumptionMethod =
+  (typeof consumptionMethodEnum.enumValues)[number];
 
 export const promotionTypeEnum = pgEnum("promotion_type", [
   "PERCENTAGE",
@@ -57,7 +60,7 @@ export const deliveryZones = pgTable("delivery_zone", {
   minOrderValueForFree: integer("min_order_value_for_free").default(0),
   isActive: boolean("is_active").default(true).notNull(),
   availableHours: pgText("available_hours").default(
-    '{"start": "09:00", "end": "22:00"}'
+    '{"start": "09:00", "end": "22:00"}',
   ),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -100,11 +103,11 @@ export const promotions = pgTable("promotion", {
   endDate: timestamp("end_date").notNull(),
   appliesToCategoryId: uuid("applies_to_category_id").references(
     () => menuCategories.id,
-    { onDelete: "cascade" }
+    { onDelete: "cascade" },
   ),
   appliesToProductId: uuid("applies_to_product_id").references(
     () => products.id,
-    { onDelete: "cascade" }
+    { onDelete: "cascade" },
   ),
   branchId: uuid("branch_id")
     .notNull()
@@ -202,7 +205,7 @@ export const deliveryZonesRelations = relations(
       references: [branches.id],
     }),
     orders: many(orders),
-  })
+  }),
 );
 
 export const menuCategoriesRelations = relations(
@@ -215,7 +218,7 @@ export const menuCategoriesRelations = relations(
     products: many(products),
     promotions: many(promotions, { relationName: "appliesToCategory" }),
     combos: many(combos),
-  })
+  }),
 );
 
 export const productsRelations = relations(products, ({ one, many }) => ({
