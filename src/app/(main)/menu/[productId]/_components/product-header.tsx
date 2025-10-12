@@ -37,7 +37,6 @@ const ProductHeader = ({ product }: ProductHeaderProps) => {
           <ShoppingCartIcon />
         </Button>
       </div>
-      <h1 className="px-5 text-2xl font-bold">{product.name}</h1>
     </div>
   );
 };
