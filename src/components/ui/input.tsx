@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import { cn } from "@/app/utils/format-currency-value";
+import { cn } from "@/app/helpers/format-currency";
 
 function Input({ className, type, ...props }: React.ComponentProps<"input">) {
   return (

@@ -4,12 +4,12 @@ const nextConfig: NextConfig = {
   images: {
     remotePatterns: [
       {
-        username: "img.freepik.com",
         protocol: "https",
         hostname: "img.freepik.com",
       },
     ],
   },
+  allowedDevOrigins: ["192.168.1.143"],
 };
 
 export default nextConfig;

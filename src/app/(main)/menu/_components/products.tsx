@@ -1,10 +1,10 @@
 import Image from "next/image";
 import Link from "next/link";
-import { formatBRL } from "@/app/utils/format-currency-value";
-import type { MenuProduct } from "@/types/restaurant";
+import { formatBRL } from "@/app/helpers/format-currency";
+import type { Product } from "@/types/restaurant";
 
 interface ProductsProps {
-  products: MenuProduct[];
+  products: Product[];
 }
 
 const Products = ({ products }: ProductsProps) => {
