@@ -1,0 +1,50 @@
+import Image from "next/image";
+import type { CartProduct } from "../contexts/cart";
+import { formatBRL } from "@/app/helpers/format-currency";
+import { Button } from "@/components/ui/button";
+import { ChevronLeftIcon, ChevronRightIcon, TrashIcon } from "lucide-react";
+
+interface CartProductItemProps {
+  product: CartProduct;
+}
+
+const CartProductItem = ({ product }: CartProductItemProps) => {
+  return (
+    <div className="flex items-center justify-between">
+      {/* ESQUERDA */}
+      <div className="flex items-center gap-3">
+        <div className="relative h-20 w-20 rounded-xl bg-gray-100">
+          <Image
+            src={product.imageUrl}
+            alt={product.name}
+            fill
+            className="h-full w-full rounded-xl object-cover"
+          />
+        </div>
+        <div className="space-y-1">
+          <p className="max-w-[90%] truncate text-xs text-ellipsis">
+            {product.name}
+          </p>
+          <p className="text-sm font-semibold">{formatBRL(product.price)}</p>
+          {/* QUANTIDADE */}
+          <div className="flex items-center gap-1 text-center">
+            <Button variant="outline" className="h-7 w-7 rounded-lg">
+              <ChevronLeftIcon />
+            </Button>
+            <p className="text-XS w-7">{product.quantity}</p>
+            <Button variant="destructive" className="h-7 w-7 rounded-lg">
+              <ChevronRightIcon />
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* DIREITA */}
+      <Button className="h-7 w-7 rounded-lg" variant="outline">
+        <TrashIcon />
+      </Button>
+    </div>
+  );
+};
+
+export default CartProductItem;

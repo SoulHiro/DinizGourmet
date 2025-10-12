@@ -2,7 +2,7 @@
 import type { Product } from "@/types/restaurant";
 import { createContext, useState, type ReactNode } from "react";
 
-interface CartProduct
+export interface CartProduct
   extends Pick<Product, "id" | "name" | "price" | "imageUrl"> {
   quantity: number;
 }
@@ -29,7 +29,24 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
     setIsOpen(!isOpen);
   };
   const addProduct = (product: CartProduct) => {
-    setProducts([...products, product]);
+    const productIsAlreadyOnTheCart = products.some(
+      (prevProduct) => prevProduct.id === product.id,
+    );
+
+    if (!productIsAlreadyOnTheCart) {
+      return setProducts((prev) => [...prev, product]);
+    }
+
+    setProducts((prevProducts) => {
+      return prevProducts.map((prevProduct) =>
+        prevProduct.id === product.id
+          ? {
+              ...prevProduct,
+              quantity: prevProduct.quantity + product.quantity,
+            }
+          : prevProduct,
+      );
+    });
   };
   return (
     <CartContext.Provider
