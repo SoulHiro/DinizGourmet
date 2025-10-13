@@ -1,6 +1,10 @@
 "use client";
 import { Button } from "@/components/ui/button";
-import { ChevronLeftIcon, ShoppingCartIcon } from "lucide-react";
+import {
+  ChevronLeftIcon,
+  ScrollTextIcon,
+  ShoppingCartIcon,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 
@@ -33,8 +37,9 @@ const ProductHeader = ({ product }: ProductHeaderProps) => {
         <Button
           variant="secondary"
           className="absolute top-4 right-4 z-50 rounded-full"
+          onClick={() => router.push(`/orders`)}
         >
-          <ShoppingCartIcon />
+          <ScrollTextIcon />
         </Button>
       </div>
     </div>
