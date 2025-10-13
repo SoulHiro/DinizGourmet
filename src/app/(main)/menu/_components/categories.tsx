@@ -5,8 +5,11 @@ import type { InferSelectModel } from "drizzle-orm";
 import { menuCategories, products } from "@/db/schema";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { useContext, useState } from "react";
 import Products from "./products";
+import { CartContext } from "../contexts/cart";
+import { formatBRL } from "@/app/helpers/format-currency";
+import CartSheet from "./cart-sheet";
 
 type MenuCategory = InferSelectModel<typeof menuCategories> & {
   products: InferSelectModel<typeof products>[];
@@ -22,6 +25,8 @@ const RestaurantCategories = ({
   const [selectedCategory, setSelectedCategory] = useState<MenuCategory>(
     _categories[0],
   );
+  const { products, total, totalQuantity, toggleCart } =
+    useContext(CartContext);
   const handleCategoryClick = (category: MenuCategory) => {
     setSelectedCategory(category);
   };
@@ -65,6 +70,21 @@ const RestaurantCategories = ({
       </ScrollArea>
       <h3 className="px-5 text-lg font-semibold">{selectedCategory.name}</h3>
       <Products products={selectedCategory.products} />
+      {products.length > 0 && (
+        <div className="fixed right-0 bottom-0 left-0 flex w-full items-center justify-between border-t bg-white px-5 py-3">
+          <div>
+            <p className="text-muted-foreground text-xs">Total dos pedidos</p>
+            <p className="text-sm font-semibold">
+              {formatBRL(total)}
+              <span className="text-muted-foreground text-xs font-normal">
+                / {totalQuantity} {totalQuantity > 1 ? "itens" : "item"}
+              </span>
+            </p>
+          </div>
+          <Button onClick={toggleCart}>Ver sacola</Button>
+          <CartSheet />
+        </div>
+      )}
     </div>
   );
 };

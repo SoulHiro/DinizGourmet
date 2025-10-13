@@ -63,6 +63,6 @@ export const createOrder = async (input: CreateOrderInput) => {
   }));
 
   await db.insert(orderProducts).values(orderProductsData);
-  redirect(`/orders`);
+  redirect(`/orders?cpf=${removeCpfPunctuation(input.customerCpf)}`);
   return order;
 };
