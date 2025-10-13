@@ -12,6 +12,7 @@ import {
   type ConsumptionMethod,
 } from "@/db/schema";
 import { inArray } from "drizzle-orm";
+import { redirect } from "next/navigation";
 
 interface CreateOrderInput {
   customerName: string;
@@ -62,6 +63,6 @@ export const createOrder = async (input: CreateOrderInput) => {
   }));
 
   await db.insert(orderProducts).values(orderProductsData);
-  revalidatePath(`/orders`);
+  redirect(`/orders`);
   return order;
 };
