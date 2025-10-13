@@ -33,23 +33,9 @@ export const promotionTypeEnum = pgEnum("promotion_type", [
   "BUY_ONE_GET_ONE",
 ]);
 
-export const branches = pgTable("branch", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-  address: text("address").notNull(),
-  phone: text("phone"),
-  email: text("email"),
-  isActive: boolean("is_active").default(true).notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
-
 export const deliveryZones = pgTable("delivery_zone", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
-  branchId: uuid("branch_id")
-    .notNull()
-    .references(() => branches.id, { onDelete: "cascade" }),
   deliveryFee: integer("delivery_fee").notNull(),
   coveredCeps: pgText("covered_ceps").array().notNull().default([]),
   coveredNeighborhoods: pgText("covered_neighborhoods")
@@ -70,9 +56,6 @@ export const deliveryZones = pgTable("delivery_zone", {
 export const menuCategories = pgTable("menu_category", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
-  branchId: uuid("branch_id").references(() => branches.id, {
-    onDelete: "cascade",
-  }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -87,9 +70,6 @@ export const products = pgTable("product", {
   menuCategoryId: uuid("menu_category_id")
     .notNull()
     .references(() => menuCategories.id, { onDelete: "cascade" }),
-  branchId: uuid("branch_id")
-    .notNull()
-    .references(() => branches.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -109,9 +89,6 @@ export const promotions = pgTable("promotion", {
     () => products.id,
     { onDelete: "cascade" },
   ),
-  branchId: uuid("branch_id")
-    .notNull()
-    .references(() => branches.id, { onDelete: "cascade" }),
   isActive: boolean("is_active").default(true).notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -126,9 +103,6 @@ export const combos = pgTable("combo", {
   menuCategoryId: uuid("menu_category_id")
     .notNull()
     .references(() => menuCategories.id, { onDelete: "cascade" }),
-  branchId: uuid("branch_id")
-    .notNull()
-    .references(() => branches.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -150,18 +124,15 @@ export const comboProducts = pgTable("combo_product", {
 export const orders = pgTable("order", {
   id: serial("id").primaryKey(),
   total: integer("total").notNull(),
-  deliveryFee: integer("delivery_fee").notNull(),
-  grandTotal: integer("grand_total").notNull(),
+  deliveryFee: integer("delivery_fee"),
+  customerName: text("customer_name").notNull(),
+  customerCpf: text("customer_cpf").notNull(),
   status: orderStatusEnum("status").notNull(),
   consumptionMethod: consumptionMethodEnum("consumption_method").notNull(),
-  branchId: uuid("branch_id")
-    .notNull()
-    .references(() => branches.id, { onDelete: "cascade" }),
   deliveryZoneId: uuid("delivery_zone_id").references(() => deliveryZones.id, {
     onDelete: "set null",
   }),
   deliveryAddress: text("delivery_address").notNull(),
-  deliveryCep: text("delivery_cep").notNull(),
   deliveryNeighborhood: text("delivery_neighborhood"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -188,33 +159,13 @@ export const orderProducts = pgTable("order_product", {
 });
 
 // Relations
-export const branchesRelations = relations(branches, ({ many }) => ({
-  products: many(products),
-  promotions: many(promotions),
-  combos: many(combos),
+export const deliveryZonesRelations = relations(deliveryZones, ({ many }) => ({
   orders: many(orders),
-  menuCategories: many(menuCategories),
-  deliveryZones: many(deliveryZones),
 }));
-
-export const deliveryZonesRelations = relations(
-  deliveryZones,
-  ({ one, many }) => ({
-    branch: one(branches, {
-      fields: [deliveryZones.branchId],
-      references: [branches.id],
-    }),
-    orders: many(orders),
-  }),
-);
 
 export const menuCategoriesRelations = relations(
   menuCategories,
-  ({ one, many }) => ({
-    branch: one(branches, {
-      fields: [menuCategories.branchId],
-      references: [branches.id],
-    }),
+  ({ many }) => ({
     products: many(products),
     promotions: many(promotions, { relationName: "appliesToCategory" }),
     combos: many(combos),
@@ -226,20 +177,12 @@ export const productsRelations = relations(products, ({ one, many }) => ({
     fields: [products.menuCategoryId],
     references: [menuCategories.id],
   }),
-  branch: one(branches, {
-    fields: [products.branchId],
-    references: [branches.id],
-  }),
   orderProducts: many(orderProducts),
   promotions: many(promotions, { relationName: "appliesToProduct" }),
   comboProducts: many(comboProducts),
 }));
 
 export const promotionsRelations = relations(promotions, ({ one, many }) => ({
-  branch: one(branches, {
-    fields: [promotions.branchId],
-    references: [branches.id],
-  }),
   appliesToCategory: one(menuCategories, {
     fields: [promotions.appliesToCategoryId],
     references: [menuCategories.id],
@@ -258,10 +201,6 @@ export const combosRelations = relations(combos, ({ one, many }) => ({
     fields: [combos.menuCategoryId],
     references: [menuCategories.id],
   }),
-  branch: one(branches, {
-    fields: [combos.branchId],
-    references: [branches.id],
-  }),
   comboProducts: many(comboProducts),
   orderProducts: many(orderProducts),
 }));
@@ -278,10 +217,6 @@ export const comboProductsRelations = relations(comboProducts, ({ one }) => ({
 }));
 
 export const ordersRelations = relations(orders, ({ one, many }) => ({
-  branch: one(branches, {
-    fields: [orders.branchId],
-    references: [branches.id],
-  }),
   deliveryZone: one(deliveryZones, {
     fields: [orders.deliveryZoneId],
     references: [deliveryZones.id],

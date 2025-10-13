@@ -1,7 +1,7 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import "dotenv/config";
 import * as schema from "./schema";
-import { products, branches, menuCategories } from "./schema";
+import { products, menuCategories } from "./schema";
 
 import pg from "pg";
 const { Pool } = pg;
@@ -18,25 +18,13 @@ const db = drizzle(pool, { schema });
 async function main() {
   console.log("🌱 Iniciando seed...");
 
-  // 1️⃣ Criar branch
-  const [branch] = await db
-    .insert(branches)
-    .values({
-      id: crypto.randomUUID(),
-      name: "Unidade Central",
-      address: "Rua Principal, 123 - Centro",
-      phone: "(11) 99999-9999",
-      email: "contato@pizzaria.com",
-    })
-    .returning();
-
-  // 2️⃣ Criar categorias
+  // 1️⃣ Criar categorias
   const categories = await db
     .insert(menuCategories)
     .values([
-      { name: "Pizzas", branchId: branch.id },
-      { name: "Hambúrgueres", branchId: branch.id },
-      { name: "Xis", branchId: branch.id },
+      { name: "Pizzas" },
+      { name: "Hambúrgueres" },
+      { name: "Xis" },
     ])
     .returning();
 
@@ -44,7 +32,7 @@ async function main() {
   const burgersCategory = categories.find((c) => c.name === "Hambúrgueres")!;
   const xisCategory = categories.find((c) => c.name === "Xis")!;
 
-  // 3️⃣ Inserir produtos
+  // 2️⃣ Inserir produtos
   await db.insert(products).values([
     // 🧀 PIZZAS
     {
@@ -54,7 +42,6 @@ async function main() {
       imageUrl: "/images/pizza-default.png",
       ingredients: ["Brócolis", "Bacon", "Requeijão"],
       menuCategoryId: pizzasCategory.id,
-      branchId: branch.id,
     },
     {
       name: "Rúcula",
@@ -63,7 +50,6 @@ async function main() {
       imageUrl: "/images/pizza-default.png",
       ingredients: ["Rúcula", "Tomate seco"],
       menuCategoryId: pizzasCategory.id,
-      branchId: branch.id,
     },
     {
       name: "Atum",
@@ -72,7 +58,6 @@ async function main() {
       imageUrl: "/images/pizza-default.png",
       ingredients: ["Mussarela", "Atum", "Cebola"],
       menuCategoryId: pizzasCategory.id,
-      branchId: branch.id,
     },
     {
       name: "Baiana",
@@ -81,7 +66,6 @@ async function main() {
       imageUrl: "/images/pizza-default.png",
       ingredients: ["Calabresa", "Ovos", "Cebola", "Pimenta", "Pimentão"],
       menuCategoryId: pizzasCategory.id,
-      branchId: branch.id,
     },
     {
       name: "Barcelona",
@@ -90,7 +74,6 @@ async function main() {
       imageUrl: "/images/pizza-default.png",
       ingredients: ["Lombinho", "Catupiry", "Provolone", "Bacon"],
       menuCategoryId: pizzasCategory.id,
-      branchId: branch.id,
     },
     {
       name: "Gaúcha",
@@ -106,7 +89,6 @@ async function main() {
         "Cebola",
       ],
       menuCategoryId: pizzasCategory.id,
-      branchId: branch.id,
     },
     {
       name: "Pizza Guirlanda",
@@ -120,7 +102,6 @@ async function main() {
         "Batata frita",
       ],
       menuCategoryId: pizzasCategory.id,
-      branchId: branch.id,
     },
 
     // 🍔 HAMBÚRGUERES
@@ -131,7 +112,6 @@ async function main() {
       imageUrl: "/images/burger-default.png",
       ingredients: ["Maionese", "Mussarela", "Hambúrguer artesanal"],
       menuCategoryId: burgersCategory.id,
-      branchId: branch.id,
     },
     {
       name: "Rocky Burguer",
@@ -141,7 +121,6 @@ async function main() {
       imageUrl: "/images/burger-default.png",
       ingredients: ["Maionese", "Cheddar", "Hambúrguer", "Alface", "Tomate"],
       menuCategoryId: burgersCategory.id,
-      branchId: branch.id,
     },
     {
       name: "West Coast",
@@ -150,7 +129,6 @@ async function main() {
       imageUrl: "/images/burger-default.png",
       ingredients: ["Barbecue", "Cheddar", "Hambúrguer", "Bacon", "Ovo"],
       menuCategoryId: burgersCategory.id,
-      branchId: branch.id,
     },
     {
       name: "Vulcano Spice",
@@ -159,7 +137,6 @@ async function main() {
       imageUrl: "/images/burger-default.png",
       ingredients: ["Maionese", "Cheddar", "Hambúrguer", "Calabresa", "Picles"],
       menuCategoryId: burgersCategory.id,
-      branchId: branch.id,
     },
     {
       name: "Mentawaii",
@@ -176,7 +153,6 @@ async function main() {
         "Cebola caramelizada",
       ],
       menuCategoryId: burgersCategory.id,
-      branchId: branch.id,
     },
     {
       name: "Crunch Waves",
@@ -192,7 +168,6 @@ async function main() {
         "Cebola roxa",
       ],
       menuCategoryId: burgersCategory.id,
-      branchId: branch.id,
     },
     {
       name: "Doppio Cheddar",
@@ -202,7 +177,6 @@ async function main() {
       imageUrl: "/images/burger-default.png",
       ingredients: ["Cheddar", "Hambúrguer duplo", "Cebola roxa", "Alface"],
       menuCategoryId: burgersCategory.id,
-      branchId: branch.id,
     },
     {
       name: "Fabuloso",
@@ -218,7 +192,6 @@ async function main() {
         "Picles",
       ],
       menuCategoryId: burgersCategory.id,
-      branchId: branch.id,
     },
 
     // 🌭 XIS
@@ -229,7 +202,6 @@ async function main() {
       imageUrl: "/images/xis-default.png",
       ingredients: ["Maionese", "Hambúrguer", "Ovo"],
       menuCategoryId: xisCategory.id,
-      branchId: branch.id,
     },
     {
       name: "Xis Clássico",
@@ -248,7 +220,6 @@ async function main() {
         "Queijo",
       ],
       menuCategoryId: xisCategory.id,
-      branchId: branch.id,
     },
     {
       name: "Xis Frango",
@@ -267,7 +238,6 @@ async function main() {
         "Queijo",
       ],
       menuCategoryId: xisCategory.id,
-      branchId: branch.id,
     },
     {
       name: "Xis Bacon",
@@ -287,7 +257,6 @@ async function main() {
         "Queijo",
       ],
       menuCategoryId: xisCategory.id,
-      branchId: branch.id,
     },
     {
       name: "Xis Calabresa",
@@ -307,7 +276,6 @@ async function main() {
         "Queijo",
       ],
       menuCategoryId: xisCategory.id,
-      branchId: branch.id,
     },
     {
       name: "Xis da Casa",
@@ -329,7 +297,6 @@ async function main() {
         "Queijo",
       ],
       menuCategoryId: xisCategory.id,
-      branchId: branch.id,
     },
   ]);
 

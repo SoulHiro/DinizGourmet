@@ -26,6 +26,13 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { createOrder } from "../actions/create-order";
+import { useSearchParams } from "next/navigation";
+import type { ConsumptionMethod } from "@/db/schema";
+import { useContext, useTransition } from "react";
+import { CartContext } from "../contexts/cart";
+import { toast } from "sonner";
+import { Loader2Icon } from "lucide-react";
 
 const formSchema = z.object({
   name: z.string().trim().min(1, "Nome é obrigatório"),
@@ -40,6 +47,9 @@ interface FinishOrderDialogProps {
 }
 
 const FinishOrderDialog = ({ open, onOpenChange }: FinishOrderDialogProps) => {
+  const { products } = useContext(CartContext);
+  const searchParams = useSearchParams();
+  const [isPending, startTransition] = useTransition();
   const form = useForm<FormSchema>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -49,8 +59,24 @@ const FinishOrderDialog = ({ open, onOpenChange }: FinishOrderDialogProps) => {
     shouldUnregister: true,
   });
 
-  const onSubmit = (data: FormSchema) => {
-    console.log(data);
+  const onSubmit = async (data: FormSchema) => {
+    const consumptionMethod = searchParams.get(
+      "consumptionMethod",
+    ) as ConsumptionMethod;
+    try {
+      startTransition(async () => {
+        await createOrder({
+          customerName: data.name,
+          customerCpf: data.cpf,
+          products,
+          consumptionMethod,
+        });
+        onOpenChange(false);
+        toast.success("Pedido finalizado com sucesso!");
+      });
+    } catch (error) {
+      console.log(error);
+    }
   };
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
@@ -101,7 +127,9 @@ const FinishOrderDialog = ({ open, onOpenChange }: FinishOrderDialogProps) => {
                   type="submit"
                   variant="destructive"
                   className="rounded-full"
+                  disabled={isPending}
                 >
+                  {isPending && <Loader2Icon className="animate-spin" />}
                   Finalizar
                 </Button>
                 <DrawerClose asChild>
