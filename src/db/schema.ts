@@ -1,6 +1,7 @@
 import { relations } from "drizzle-orm";
 import {
   boolean,
+  date,
   decimal,
   integer,
   pgEnum,
@@ -8,6 +9,7 @@ import {
   text as pgText,
   serial,
   text,
+  time,
   timestamp,
   uuid,
 } from "drizzle-orm/pg-core";
@@ -242,3 +244,43 @@ export const orderProductsRelations = relations(orderProducts, ({ one }) => ({
     references: [combos.id],
   }),
 }));
+
+export const events = pgTable("event", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  description: text("description"),
+  attraction: text("attraction"),
+  eventDate: date("event_date").notNull(),
+  startTime: time("start_time").notNull(),
+  endTime: time("end_time"),
+  location: text("location").notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const eventReservations = pgTable("event_reservation", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  eventId: uuid("event_id")
+    .notNull()
+    .references(() => events.id, { onDelete: "cascade" }),
+  customerName: text("customer_name").notNull(),
+  whatsapp: text("whatsapp").notNull(),
+  partySize: integer("party_size").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const eventsRelations = relations(events, ({ many }) => ({
+  reservations: many(eventReservations),
+}));
+
+export const eventReservationsRelations = relations(
+  eventReservations,
+  ({ one }) => ({
+    event: one(events, {
+      fields: [eventReservations.eventId],
+      references: [events.id],
+    }),
+  }),
+);
