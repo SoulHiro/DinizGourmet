@@ -9,6 +9,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { db } from "@/db";
 import { events } from "@/db/schema";
 
+export const dynamic = "force-dynamic";
+
 const EventosPage = async () => {
   const eventosData = await db.query.events.findMany({
     orderBy: desc(events.eventDate),
