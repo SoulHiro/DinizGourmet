@@ -1,8 +1,10 @@
-import { consumptionMethodEnum, type ConsumptionMethod } from "@/db/schema";
 import { notFound } from "next/navigation";
-import RestaurantHeader from "./_components/header";
-import RestaurantCategories from "./_components/categories";
 import { db } from "@/db";
+import { type ConsumptionMethod, consumptionMethodEnum } from "@/db/schema";
+import RestaurantCategories from "./_components/categories";
+import RestaurantHeader from "./_components/header";
+
+export const dynamic = "force-dynamic";
 
 interface MenuPageProps {
   searchParams: {
