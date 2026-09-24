@@ -1,0 +1,111 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Design System do app (Notion > Design System — Xis Diniz (App)).
+ * Os hex abaixo são uma PROPOSTA inicial (o Notion ainda não definia valores).
+ * Regra fixa: cores de status nunca coincidem com as de marca.
+ */
+:root {
+  --bg-base: #f7f2ea;
+  --bg-surface: #ffffff;
+  --text-primary: #2b1b0e;
+  --text-secondary: #6e5e50;
+  --border: #e4d9ca;
+
+  --brand-primary: #5a3a22;
+  --brand-primary-foreground: #fbf6ef;
+  --brand-accent: #bc430d;
+  --brand-accent-foreground: #ffffff;
+
+  --status-livre: #2e9e57;
+  --status-ocupada: #2f6fd6;
+  --status-aguardando: #e8c61a;
+  --status-chamado: #ff9500;
+  --status-conta: #d62d2d;
+
+  --destructive: #c62828;
+  --radius: 0.75rem;
+}
+
+.dark {
+  --bg-base: #17110c;
+  --bg-surface: #231a13;
+  --text-primary: #f3eadc;
+  --text-secondary: #b9ac9c;
+  --border: #3a2e24;
+
+  --brand-primary: #c79a6b;
+  --brand-primary-foreground: #17110c;
+  --brand-accent: #d9591f;
+  --brand-accent-foreground: #ffffff;
+
+  --status-livre: #3fbf6e;
+  --status-ocupada: #5a8ff0;
+  --status-aguardando: #f2d43a;
+  --status-chamado: #ffa726;
+  --status-conta: #ef5350;
+
+  --destructive: #ef5350;
+}
+
+@theme inline {
+  --font-sans: "Source Sans 3 Variable", ui-sans-serif, system-ui, sans-serif;
+
+  --color-base: var(--bg-base);
+  --color-surface: var(--bg-surface);
+  --color-texto: var(--text-primary);
+  --color-texto-secundario: var(--text-secondary);
+  --color-borda: var(--border);
+
+  --color-marca: var(--brand-primary);
+  --color-marca-foreground: var(--brand-primary-foreground);
+  --color-acao: var(--brand-accent);
+  --color-acao-foreground: var(--brand-accent-foreground);
+
+  --color-status-livre: var(--status-livre);
+  --color-status-ocupada: var(--status-ocupada);
+  --color-status-aguardando: var(--status-aguardando);
+  --color-status-chamado: var(--status-chamado);
+  --color-status-conta: var(--status-conta);
+
+  /* Aliases para os primitivos shadcn copiados do site */
+  --color-background: var(--bg-base);
+  --color-foreground: var(--text-primary);
+  --color-card: var(--bg-surface);
+  --color-card-foreground: var(--text-primary);
+  --color-popover: var(--bg-surface);
+  --color-popover-foreground: var(--text-primary);
+  --color-primary: var(--brand-accent);
+  --color-primary-foreground: var(--brand-accent-foreground);
+  --color-secondary: var(--border);
+  --color-secondary-foreground: var(--text-primary);
+  --color-muted: var(--border);
+  --color-muted-foreground: var(--text-secondary);
+  --color-accent: var(--border);
+  --color-accent-foreground: var(--text-primary);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--border);
+  --color-ring: var(--brand-accent);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply bg-base text-texto antialiased;
+    overscroll-behavior-y: none;
+  }
+}
