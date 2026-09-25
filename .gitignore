@@ -46,3 +46,4 @@ dist/
 .pgdata/
 .tickets/
 !.env.example
+apps/salao/midia/

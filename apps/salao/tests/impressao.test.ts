@@ -38,7 +38,7 @@ const statusDaRodada = async (rodadaId: string) => {
 
 const lancarXis = async (numeroMesa: number) => {
   const m = await mesa(numeroMesa);
-  const xis = await produto("Xis Salada");
+  const xis = await produto("Xis Buenas - Clássico");
   return lancarRodada(garcom, m.id, {
     idempotencyKey: chave(),
     itens: [
@@ -96,7 +96,7 @@ describe("worker de impressão", () => {
     );
     expect(ticket).toContain("CHAPA");
     expect(ticket).toContain("MESA 1");
-    expect(ticket).toContain("1x 1 - XIS SALADA");
+    expect(ticket).toContain("1x 1 - XIS BUENAS - CLÁSSICO");
     expect(ticket).toContain("OBS: sem cebola");
   });
 

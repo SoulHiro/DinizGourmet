@@ -16,6 +16,11 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL("/garcom", request.url));
   }
 
+  // Página do QR da mesa e sua API: abertas ao cliente, sem login.
+  if (pathname.startsWith("/c/") || pathname.startsWith("/api/publico/")) {
+    return NextResponse.next();
+  }
+
   if (pathname.startsWith("/api")) {
     if (ROTAS_API_PUBLICAS.includes(pathname) || temCookie) {
       return NextResponse.next();

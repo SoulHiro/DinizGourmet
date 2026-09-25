@@ -1,13 +1,14 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
+import { ImageIcon, Plus, Star } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/cliente";
 import { cn, formatBRL } from "@/lib/utils";
+import { DetalhesProduto } from "./detalhes-produto";
 
 type Produto = {
   id: string;
@@ -17,6 +18,11 @@ type Produto = {
   disponivel: boolean;
   controlaEstoque: boolean;
   estoque: number | null;
+  descricao: string | null;
+  fotoUrl: string | null;
+  videoUrl: string | null;
+  ingredientes: string[];
+  destaque: boolean;
 };
 type Categoria = {
   id: string;
@@ -41,6 +47,7 @@ export const GerenciaCardapio = () => {
     queryKey: ["gerente", "impressoras"],
     queryFn: () => api<Impressora[]>("/api/gerente/impressoras"),
   });
+  const [detalhando, setDetalhando] = useState<Produto | null>(null);
   const [novo, setNovo] = useState<{
     categoriaId: string;
     nome: string;
@@ -253,6 +260,14 @@ export const GerenciaCardapio = () => {
                 >
                   {p.disponivel ? "Disponível" : "Indisponível"}
                 </Button>
+                <Button variant="outline" onClick={() => setDetalhando(p)}>
+                  {p.destaque ? (
+                    <Star className="fill-acao text-acao" />
+                  ) : (
+                    <ImageIcon />
+                  )}
+                  {p.fotoUrl ? "Detalhes" : "Foto e detalhes"}
+                </Button>
               </li>
             ))}
           </ul>
@@ -297,6 +312,10 @@ export const GerenciaCardapio = () => {
           )}
         </section>
       ))}
+      <DetalhesProduto
+        produto={detalhando}
+        onFechar={() => setDetalhando(null)}
+      />
     </div>
   );
 };

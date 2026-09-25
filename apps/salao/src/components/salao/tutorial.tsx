@@ -12,31 +12,35 @@ import {
 import { cn } from "@/lib/utils";
 import { STATUS_MESA } from "./status-mesa";
 
-// Só o que já funciona no sistema. Chamados do cliente entram aqui quando
-// existirem (Fase 2), para não confundir a equipe.
+// Só o que já funciona no sistema.
 const SECOES: { titulo: string; conteudo: React.ReactNode }[] = [
   {
     titulo: "O que significa cada cor",
     conteudo: (
       <ul className="flex flex-col gap-2">
-        {(["livre", "aguardando", "ocupada"] as const).map((status) => (
-          <li key={status} className="flex items-center gap-3">
-            <span
-              className={cn(
-                "size-8 shrink-0 rounded-lg",
-                STATUS_MESA[status].classe,
-              )}
-            />
-            <span>
-              <strong>{STATUS_MESA[status].rotulo}</strong>
-              {status === "livre" && " — ninguém sentado, sem comanda."}
-              {status === "aguardando" &&
-                " — mesa aberta, mas ainda sem nenhum pedido."}
-              {status === "ocupada" &&
-                " — já tem pedido lançado. Mostra o total e há quanto tempo foi o último."}
-            </span>
-          </li>
-        ))}
+        {(["livre", "aguardando", "ocupada", "chamado", "conta"] as const).map(
+          (status) => (
+            <li key={status} className="flex items-center gap-3">
+              <span
+                className={cn(
+                  "size-8 shrink-0 rounded-lg",
+                  STATUS_MESA[status].classe,
+                )}
+              />
+              <span>
+                <strong>{STATUS_MESA[status].rotulo}</strong>
+                {status === "livre" && " — ninguém sentado, sem comanda."}
+                {status === "aguardando" &&
+                  " — mesa aberta, mas ainda sem nenhum pedido."}
+                {status === "ocupada" &&
+                  " — já tem pedido lançado. Mostra o total e há quanto tempo foi o último."}
+                {status === "chamado" && " — o cliente chamou pelo QR da mesa."}
+                {status === "conta" &&
+                  " — o cliente pediu a conta pelo QR. Some quando a mesa é fechada."}
+              </span>
+            </li>
+          ),
+        )}
         <li className="flex items-center gap-3">
           <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-status-chamado text-black">
             <Hand className="size-5" />
@@ -68,7 +72,7 @@ const SECOES: { titulo: string; conteudo: React.ReactNode }[] = [
         <li>
           Algum sem salada? Na revisão, toque em <strong>Observações</strong> do
           item e no chip <strong>Sem salada</strong>: ele separa{" "}
-          <strong>uma</strong> unidade. Ex.: 5× Xis Salada → "Sem salada" e "Sem
+          <strong>uma</strong> unidade. Ex.: 5× Xis Buenas → "Sem salada" e "Sem
           ovo" = 3 completos, 1 sem salada, 1 sem ovo. Mesma pessoa com duas
           observações? Toque na pílula dela e depois no segundo chip.
         </li>
@@ -108,6 +112,20 @@ const SECOES: { titulo: string; conteudo: React.ReactNode }[] = [
     ),
   },
   {
+    titulo: "Chamados do cliente (QR da mesa)",
+    conteudo: (
+      <p>
+        O cliente lê o QR da mesa e toca em <strong>Chamar garçom</strong> ou{" "}
+        <strong>Pedir a conta</strong>. O alerta aparece para todos, na ordem de
+        chegada (as suas mesas vêm marcadas). Toque em <strong>Atender</strong>:
+        o chamado some da tela dos colegas e o cliente vê "Garçom a caminho". Ao
+        terminar, toque em <strong>Feito</strong>. Se ninguém atender em cerca
+        de <strong>3 minutos</strong>, o alerta pisca em vermelho e o{" "}
+        <strong>gerente</strong> é acionado.
+      </p>
+    ),
+  },
+  {
     titulo: "Pedir ajuda",
     conteudo: (
       <p>
@@ -115,7 +133,9 @@ const SECOES: { titulo: string; conteudo: React.ReactNode }[] = [
         recebem o alerta e o celular vibra; o primeiro que tocar em{" "}
         <strong>Vou ajudar</strong> assume e você é avisado. Se ninguém
         responder em cerca de <strong>2 minutos</strong>, o alerta fica vermelho
-        e o <strong>gerente</strong> é acionado.
+        e o <strong>gerente</strong> é acionado. Viu um colega apertado? Menu{" "}
+        <strong>⋮ → Ajudar nesta mesa</strong>: você entra como auxiliar e ele é
+        avisado.
       </p>
     ),
   },
@@ -125,7 +145,9 @@ const SECOES: { titulo: string; conteudo: React.ReactNode }[] = [
       <p>
         Menu <strong>⋮ → Transferir</strong> leva a comanda inteira para outra
         mesa livre. <strong>Fechar mesa</strong> só depois do pagamento na
-        maquininha: mostra o total e libera as mesas.
+        maquininha: mostra o total, pede a <strong>gorjeta recebida</strong>{" "}
+        (atalho de 10%) e libera as mesas. A gorjeta é dividida entre os garçons
+        da mesa na proporção do que cada um lançou.
       </p>
     ),
   },

@@ -1,7 +1,7 @@
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { db, schema } from "@/db";
+import { type Db, db, schema, type Tx } from "@/db";
 import type { Sessao } from "@/lib/auth/sessao";
 import {
   conflito,
@@ -10,7 +10,16 @@ import {
   violouConstraint,
 } from "@/lib/erros";
 import { notificar } from "@/lib/runtime";
-import { buscarMesa, comandaAbertaDaMesa, mesasDaComanda } from "./comum";
+import {
+  buscarMesa,
+  comandaAbertaDaMesa,
+  configTaxa,
+  mesasDaComanda,
+  registrarGarcom,
+  subtotalDaComanda,
+} from "./comum";
+import { dividirGorjeta } from "./gorjeta";
+import { calcularTaxa } from "./taxa";
 
 // Status derivado (nunca gravado): vem da comanda aberta e das rodadas.
 // "chamado" e "conta" chegam na Fase 2, com a tabela de chamados.
@@ -48,6 +57,7 @@ export const listarMapa = async (
     rodadas: number;
     ultima_rodada_em: Date | null;
     ajuda: boolean;
+    chamado: "garcom" | "conta" | null;
     total: number;
   }>(sql`
     select m.id, m.numero,
@@ -57,7 +67,13 @@ export const listarMapa = async (
            exists (
              select 1 from pedido_ajuda pa
               where pa.mesa_id = m.id and pa.encerrado_em is null and pa.aceito_por is null
-           ) as ajuda
+           ) as ajuda,
+           (
+             select c.tipo from chamado c
+              where c.mesa_id = m.id and c.encerrado_em is null
+              order by (c.tipo = 'conta') desc
+              limit 1
+           ) as chamado
       from mesa m
       left join comanda_mesa cm on cm.mesa_id = m.id and cm.saiu_em is null
       left join comanda c on c.id = cm.comanda_id and c.status = 'aberta'
@@ -90,7 +106,17 @@ export const listarMapa = async (
     return {
       id: linha.id,
       numero: linha.numero,
-      status: !aberta ? "livre" : linha.rodadas > 0 ? "ocupada" : "aguardando",
+      // Pedido de conta > chamou garçom > ocupada > aguardando > livre.
+      status:
+        linha.chamado === "conta"
+          ? "conta"
+          : linha.chamado === "garcom"
+            ? "chamado"
+            : !aberta
+              ? "livre"
+              : linha.rodadas > 0
+                ? "ocupada"
+                : "aguardando",
       comandaId: linha.comanda_id,
       mesaPrincipalNumero: linha.mesa_principal_id
         ? (numeroPorId.get(linha.mesa_principal_id) ?? null)
@@ -153,6 +179,42 @@ export const detalharMesa = async (restauranteId: string, mesaId: string) => {
     }),
   ]);
 
+  // Titular + auxiliares e quanto cada um lançou (prévia da divisão da gorjeta).
+  const bases = await basesGorjeta(db(), comanda.id);
+  const papeis = await db()
+    .select({
+      id: schema.funcionarios.id,
+      nome: schema.funcionarios.nome,
+      papel: schema.comandaGarcons.papel,
+    })
+    .from(schema.funcionarios)
+    .leftJoin(
+      schema.comandaGarcons,
+      and(
+        eq(schema.comandaGarcons.funcionarioId, schema.funcionarios.id),
+        eq(schema.comandaGarcons.comandaId, comanda.id),
+      ),
+    )
+    .where(
+      inArray(
+        schema.funcionarios.id,
+        bases.map((b) => b.funcionarioId),
+      ),
+    );
+  const equipe = bases
+    .map((b) => {
+      const f = papeis.find((p) => p.id === b.funcionarioId);
+      return {
+        id: b.funcionarioId,
+        nome: f?.nome ?? "",
+        papel: f?.papel ?? ("auxiliar" as const),
+        baseCentavos: b.baseCentavos,
+      };
+    })
+    .sort(
+      (a, b) => Number(b.papel === "titular") - Number(a.papel === "titular"),
+    );
+
   const statusImpressao = await db()
     .select({
       rodadaId: schema.trabalhosImpressao.rodadaId,
@@ -175,12 +237,42 @@ export const detalharMesa = async (restauranteId: string, mesaId: string) => {
     }
   }
 
+  // Taxa de serviço calculada sobre o total e a escolha do cliente, se ele
+  // já pediu a conta pelo QR (pré-preenche o "Receber pagamento").
+  const taxa = calcularTaxa(total, await configTaxa(db(), restauranteId));
+  const [pedidoConta] = await db()
+    .select({
+      taxaServico: schema.chamados.taxaServico,
+      gorjetaCentavos: schema.chamados.gorjetaCentavos,
+    })
+    .from(schema.chamados)
+    .where(
+      and(
+        inArray(
+          schema.chamados.mesaId,
+          mesas.map((m) => m.id),
+        ),
+        eq(schema.chamados.tipo, "conta"),
+        isNull(schema.chamados.encerradoEm),
+      ),
+    )
+    .limit(1);
+
   return {
     mesa: { id: mesa.id, numero: mesa.numero },
     comanda: {
       id: comanda.id,
       abertaEm: comanda.abertaEm.toISOString(),
+      taxa,
+      pedidoConta: pedidoConta
+        ? {
+            taxaServico: pedidoConta.taxaServico ?? true,
+            gorjetaCentavos: pedidoConta.gorjetaCentavos ?? 0,
+          }
+        : null,
       titular: titular[0]?.nome ?? "",
+      titularId: comanda.garcomTitularId,
+      equipe,
       mesas,
       totalCentavos: total,
       totaisPorMesa: [...totaisPorMesa].map(([numero, totalCentavos]) => ({
@@ -266,6 +358,7 @@ export const juntarMesas = async (
       await tx
         .insert(schema.comandaMesas)
         .values({ comandaId: nova.id, mesaId: mesaPrincipalId });
+      await registrarGarcom(tx, nova.id, sessao.funcionario.id, "titular");
       comanda = nova;
     }
 
@@ -423,18 +516,110 @@ export const transferirComanda = async (
 
 // Libera a mesa depois do pagamento na maquininha. O fechamento completo
 // (caixa, divisão de conta, taxa) é fase futura; aqui só encerra a comanda.
-export const fecharComanda = async (sessao: Sessao, mesaId: string) => {
+// Quanto cada garçom lançou na comanda (base da gorjeta). Quem está na
+// comanda como titular/auxiliar mas não lançou nada aparece com base 0.
+const basesGorjeta = async (conexao: Db | Tx, comandaId: string) => {
+  const lancados = (
+    await conexao.execute<{ funcionario_id: string; base: number }>(sql`
+      select r.funcionario_id, coalesce(sum(i.total_centavos), 0)::int as base
+        from rodada r
+        join item_pedido i on i.rodada_id = r.id and i.status = 'ativo'
+       where r.comanda_id = ${comandaId}
+       group by r.funcionario_id
+    `)
+  ).rows;
+  const equipe = await conexao
+    .select({ funcionarioId: schema.comandaGarcons.funcionarioId })
+    .from(schema.comandaGarcons)
+    .where(eq(schema.comandaGarcons.comandaId, comandaId));
+  const bases = new Map(lancados.map((l) => [l.funcionario_id, l.base]));
+  for (const { funcionarioId } of equipe) {
+    if (!bases.has(funcionarioId)) bases.set(funcionarioId, 0);
+  }
+  return [...bases].map(([funcionarioId, baseCentavos]) => ({
+    funcionarioId,
+    baseCentavos,
+  }));
+};
+
+export const fecharMesaSchema = z.object({
+  // Cliente pagou a taxa de serviço? O valor é calculado aqui, no servidor.
+  taxaServico: z.boolean().default(false),
+  // Gorjeta recebida na maquininha (0 = sem gorjeta).
+  gorjetaCentavos: z.number().int().min(0).max(1_000_000).default(0),
+});
+
+// Marca a conta como paga (maquininha) e libera a mesa: calcula a taxa de
+// serviço, divide taxa e gorjeta entre os garçons da mesa (proporcional ao que
+// cada um lançou, separadamente) e encerra os chamados da mesa.
+export const fecharComanda = async (
+  sessao: Sessao,
+  mesaId: string,
+  {
+    taxaServico = false,
+    gorjetaCentavos = 0,
+  }: { taxaServico?: boolean; gorjetaCentavos?: number } = {},
+) => {
   const { restauranteId } = sessao.funcionario;
-  const comandaId = await db().transaction(async (tx) => {
+  const resultado = await db().transaction(async (tx) => {
     await buscarMesa(tx, restauranteId, mesaId);
     const comanda = await comandaAbertaDaMesa(tx, mesaId);
     if (!comanda) throw naoEncontrado("Comanda aberta");
+    // Trava a comanda: dois garçons fechando ao mesmo tempo não duplicam gorjeta.
+    await tx.execute(
+      sql`select id from comanda where id = ${comanda.id} for update`,
+    );
 
     const [{ ativos }] = (
       await tx.execute<{ ativos: number }>(
         sql`select count(*)::int as ativos from item_pedido where comanda_id = ${comanda.id} and status = 'ativo'`,
       )
     ).rows;
+
+    const mesasDaComandaIds = (
+      await tx
+        .select({ mesaId: schema.comandaMesas.mesaId })
+        .from(schema.comandaMesas)
+        .where(
+          and(
+            eq(schema.comandaMesas.comandaId, comanda.id),
+            isNull(schema.comandaMesas.saiuEm),
+          ),
+        )
+    ).map((m) => m.mesaId);
+
+    const subtotalCentavos = await subtotalDaComanda(tx, comanda.id);
+    const taxaCentavos = taxaServico
+      ? calcularTaxa(subtotalCentavos, await configTaxa(tx, restauranteId))
+          .valorCentavos
+      : 0;
+    const bases =
+      gorjetaCentavos > 0 || taxaCentavos > 0
+        ? await basesGorjeta(tx, comanda.id)
+        : [];
+    const divisao =
+      gorjetaCentavos > 0
+        ? dividirGorjeta(gorjetaCentavos, bases, comanda.garcomTitularId)
+        : [];
+    const divisaoTaxa =
+      taxaCentavos > 0
+        ? dividirGorjeta(taxaCentavos, bases, comanda.garcomTitularId)
+        : [];
+    const repasses = [
+      ...divisao.map((d) => ({
+        comandaId: comanda.id,
+        tipo: "gorjeta" as const,
+        ...d,
+      })),
+      ...divisaoTaxa.map((d) => ({
+        comandaId: comanda.id,
+        tipo: "taxa" as const,
+        ...d,
+      })),
+    ];
+    if (repasses.length) {
+      await tx.insert(schema.gorjetaDivisoes).values(repasses);
+    }
 
     await tx
       .update(schema.comandaMesas)
@@ -450,11 +635,36 @@ export const fecharComanda = async (sessao: Sessao, mesaId: string) => {
       .set({
         status: ativos > 0 ? "fechada" : "cancelada",
         fechadaEm: new Date(),
+        gorjetaCentavos: gorjetaCentavos > 0 ? gorjetaCentavos : null,
+        taxaServicoCentavos: taxaServico ? taxaCentavos : null,
       })
       .where(eq(schema.comandas.id, comanda.id));
-    return comanda.id;
+    // Mesa liberada: chamados dela (inclusive "pediu a conta") se encerram.
+    if (mesasDaComandaIds.length) {
+      await tx
+        .update(schema.chamados)
+        .set({ encerradoEm: new Date() })
+        .where(
+          and(
+            inArray(schema.chamados.mesaId, mesasDaComandaIds),
+            isNull(schema.chamados.encerradoEm),
+          ),
+        );
+    }
+    return {
+      comandaId: comanda.id,
+      subtotalCentavos,
+      taxaCentavos,
+      totalCentavos: subtotalCentavos + taxaCentavos + gorjetaCentavos,
+      divisao,
+      divisaoTaxa,
+    };
   });
 
-  notificar(restauranteId, ["mesas", `comanda:${comandaId}`]);
-  return { comandaId };
+  notificar(restauranteId, [
+    "mesas",
+    "chamados",
+    `comanda:${resultado.comandaId}`,
+  ]);
+  return resultado;
 };

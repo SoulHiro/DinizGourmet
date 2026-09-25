@@ -56,6 +56,15 @@ export const origemRodadaEnum = pgEnum("origem_rodada", ["garcom", "totem"]);
 
 export const statusItemEnum = pgEnum("status_item", ["ativo", "cancelado"]);
 
+export const tipoChamadoEnum = pgEnum("tipo_chamado", ["garcom", "conta"]);
+
+export const tipoRepasseEnum = pgEnum("tipo_repasse", ["gorjeta", "taxa"]);
+
+export const papelNaComandaEnum = pgEnum("papel_na_comanda", [
+  "titular",
+  "auxiliar",
+]);
+
 export const tipoTrabalhoImpressaoEnum = pgEnum("tipo_trabalho_impressao", [
   "pedido",
   "cancelamento",
@@ -78,6 +87,14 @@ export type SetorImpressora = (typeof setorImpressoraEnum.enumValues)[number];
 export const restaurantes = pgTable("restaurante", {
   id: uuid("id").primaryKey().defaultRandom(),
   nome: text("nome").notNull(),
+  // Taxa de serviço: taxaServicoPct até o limite; acima dele, a reduzida.
+  taxaServicoPct: integer("taxa_servico_pct").notNull().default(10),
+  taxaServicoPctReduzida: integer("taxa_servico_pct_reduzida")
+    .notNull()
+    .default(5),
+  taxaServicoLimiteCentavos: integer("taxa_servico_limite_centavos")
+    .notNull()
+    .default(30000),
   criadoEm: criadoEm(),
   atualizadoEm: atualizadoEm(),
 });
@@ -176,6 +193,14 @@ export const produtos = pgTable(
     codigo: integer("codigo"),
     nome: text("nome").notNull(),
     descricao: text("descricao"),
+    // Cardápio digital do cliente (QR da mesa).
+    fotoUrl: text("foto_url"),
+    videoUrl: text("video_url"),
+    ingredientes: text("ingredientes")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    destaque: boolean("destaque").notNull().default(false),
     // Nome sem acento e minúsculo, para a busca rápida do garçom.
     buscaNormalizada: text("busca_normalizada").notNull(),
     precoCentavos: integer("preco_centavos").notNull(),
@@ -234,11 +259,18 @@ export const mesas = pgTable(
       .notNull()
       .references(() => restaurantes.id),
     numero: integer("numero").notNull(),
+    // Vai no QR code da mesa: o cliente só consegue chamar a própria mesa.
+    tokenQr: text("token_qr")
+      .notNull()
+      .default(sql`replace(gen_random_uuid()::text, '-', '')`),
     ativa: boolean("ativa").notNull().default(true),
     criadoEm: criadoEm(),
     atualizadoEm: atualizadoEm(),
   },
-  (t) => [uniqueIndex("mesa_numero_idx").on(t.restauranteId, t.numero)],
+  (t) => [
+    uniqueIndex("mesa_numero_idx").on(t.restauranteId, t.numero),
+    uniqueIndex("mesa_token_qr_idx").on(t.tokenQr),
+  ],
 );
 
 export const comandas = pgTable(
@@ -259,6 +291,10 @@ export const comandas = pgTable(
       .notNull()
       .defaultNow(),
     fechadaEm: timestamp("fechada_em", { withTimezone: true }),
+    // Informada ao fechar a mesa; dividida entre os garçons (gorjeta_divisao).
+    gorjetaCentavos: integer("gorjeta_centavos"),
+    // Taxa de serviço cobrada no fechamento (null = cliente não quis pagar).
+    taxaServicoCentavos: integer("taxa_servico_centavos"),
     atualizadoEm: atualizadoEm(),
   },
   (t) => [
@@ -467,6 +503,8 @@ export const pedidosAjuda = pgTable(
     aceitoEm: timestamp("aceito_em", { withTimezone: true }),
     escaladoEm: timestamp("escalado_em", { withTimezone: true }),
     encerradoEm: timestamp("encerrado_em", { withTimezone: true }),
+    // Garçom que se ofereceu sem ter sido chamado (o titular só é avisado).
+    espontaneo: boolean("espontaneo").notNull().default(false),
   },
   (t) => [
     index("pedido_ajuda_restaurante_idx").on(t.restauranteId, t.encerradoEm),
@@ -475,6 +513,75 @@ export const pedidosAjuda = pgTable(
       .on(t.mesaId)
       .where(sql`${t.encerradoEm} is null and ${t.aceitoPor} is null`),
   ],
+);
+
+// Garçons que trabalharam na comanda (titular + auxiliares), para os
+// alertas e para a divisão da gorjeta.
+export const comandaGarcons = pgTable(
+  "comanda_garcom",
+  {
+    comandaId: uuid("comanda_id")
+      .notNull()
+      .references(() => comandas.id),
+    funcionarioId: uuid("funcionario_id")
+      .notNull()
+      .references(() => funcionarios.id),
+    papel: papelNaComandaEnum("papel").notNull(),
+    entrouEm: timestamp("entrou_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.comandaId, t.funcionarioId] })],
+);
+
+// Chamado do cliente pelo QR da mesa. Fila por ordem de chegada; o primeiro
+// garçom que atender tira da tela dos outros; sem resposta, vai ao gerente.
+export const chamados = pgTable(
+  "chamado",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    restauranteId: uuid("restaurante_id")
+      .notNull()
+      .references(() => restaurantes.id),
+    mesaId: uuid("mesa_id")
+      .notNull()
+      .references(() => mesas.id),
+    comandaId: uuid("comanda_id").references(() => comandas.id),
+    tipo: tipoChamadoEnum("tipo").notNull(),
+    // Pedido de conta: o que o cliente escolheu na tela do QR.
+    taxaServico: boolean("taxa_servico"),
+    gorjetaCentavos: integer("gorjeta_centavos"),
+    criadoEm: criadoEm(),
+    aceitoPor: uuid("aceito_por").references(() => funcionarios.id),
+    aceitoEm: timestamp("aceito_em", { withTimezone: true }),
+    escaladoEm: timestamp("escalado_em", { withTimezone: true }),
+    encerradoEm: timestamp("encerrado_em", { withTimezone: true }),
+  },
+  (t) => [
+    index("chamado_restaurante_idx").on(t.restauranteId, t.encerradoEm),
+    // Cliente apertando várias vezes não cria vários chamados.
+    uniqueIndex("chamado_mesa_aberto_idx")
+      .on(t.mesaId, t.tipo)
+      .where(sql`${t.encerradoEm} is null`),
+  ],
+);
+
+export const gorjetaDivisoes = pgTable(
+  "gorjeta_divisao",
+  {
+    comandaId: uuid("comanda_id")
+      .notNull()
+      .references(() => comandas.id),
+    // Gorjeta e taxa de serviço são divididas separadamente (aparecem separadas no relatório).
+    tipo: tipoRepasseEnum("tipo").notNull().default("gorjeta"),
+    funcionarioId: uuid("funcionario_id")
+      .notNull()
+      .references(() => funcionarios.id),
+    // Valor lançado pelo garçom na comanda (base da proporção).
+    baseCentavos: integer("base_centavos").notNull(),
+    valorCentavos: integer("valor_centavos").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.comandaId, t.funcionarioId, t.tipo] })],
 );
 
 // Relations

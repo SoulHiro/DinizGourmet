@@ -6,7 +6,12 @@ import type { TicketItem, TicketPayload } from "@/db/schema";
 import type { Sessao } from "@/lib/auth/sessao";
 import { conflito, invalido, violouConstraint } from "@/lib/erros";
 import { acordarImpressao, type Escopo, notificar } from "@/lib/runtime";
-import { buscarMesa, comandaAbertaDaMesa, mesasDaComanda } from "./comum";
+import {
+  buscarMesa,
+  comandaAbertaDaMesa,
+  mesasDaComanda,
+  registrarGarcom,
+} from "./comum";
 
 export const lancarRodadaSchema = z.object({
   // Gerada pelo celular quando a tela de lançamento abre. Se o garçom apertar
@@ -66,6 +71,7 @@ const obterOuAbrirComanda = async (tx: Tx, sessao: Sessao, mesaId: string) => {
       await sp
         .insert(schema.comandaMesas)
         .values({ comandaId: nova.id, mesaId });
+      await registrarGarcom(sp, nova.id, sessao.funcionario.id, "titular");
       return nova;
     });
     return { comanda, abriu: true };

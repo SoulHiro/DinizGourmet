@@ -13,7 +13,7 @@ import { BotaoTutorial } from "@/components/salao/tutorial";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/cliente";
 import { useMapa } from "@/lib/consultas";
-import type { MesaMapa } from "@/lib/dominio/mesas";
+import type { MesaMapa, StatusMesa } from "@/lib/dominio/mesas";
 import { formatarDuracao, minutosDesde, useAgora } from "@/lib/tempo";
 import { cn, formatBRL } from "@/lib/utils";
 
@@ -22,7 +22,21 @@ type Bloco = {
   chave: string;
   principal: MesaMapa;
   mesas: MesaMapa[];
+  status: StatusMesa;
 };
+
+// Bloco de mesas juntas mostra o status mais urgente entre elas (o cliente
+// pode ter chamado pelo QR de qualquer uma).
+const PRIORIDADE: StatusMesa[] = [
+  "conta",
+  "chamado",
+  "ocupada",
+  "aguardando",
+  "livre",
+];
+const statusDoBloco = (mesas: MesaMapa[]) =>
+  PRIORIDADE.find((status) => mesas.some((m) => m.status === status)) ??
+  "livre";
 
 const COLUNAS_MAX = 3;
 
@@ -45,7 +59,12 @@ const montarBlocos = (mesas: MesaMapa[]): Bloco[] => {
     for (const m of grupo) jaUsadas.add(m.id);
     const principal =
       grupo.find((m) => m.mesaPrincipalNumero === m.numero) ?? grupo[0];
-    blocos.push({ chave: mesa.comandaId ?? mesa.id, principal, mesas: grupo });
+    blocos.push({
+      chave: mesa.comandaId ?? mesa.id,
+      principal,
+      mesas: grupo,
+      status: statusDoBloco(grupo),
+    });
   }
   return blocos;
 };
@@ -112,7 +131,7 @@ const CardBloco = ({
   onSelecionar: () => void;
 }) => {
   const { principal, mesas } = bloco;
-  const status = STATUS_MESA[principal.status];
+  const status = STATUS_MESA[bloco.status];
   const juntas = mesas.length > 1;
   const minutos = minutosDesde(
     principal.ultimaRodadaEm ?? principal.abertaEm,
@@ -196,7 +215,7 @@ export default function MapaMesasPage() {
         .filter((b): b is Bloco => Boolean(b));
       // A principal é a que já tem pedido; se nenhuma tem, a primeira marcada.
       const principal =
-        escolhidos.find((b) => b.principal.status === "ocupada") ??
+        escolhidos.find((b) => b.mesas.some((m) => m.totalCentavos > 0)) ??
         escolhidos[0];
       const outras = escolhidos
         .filter((b) => b !== principal)

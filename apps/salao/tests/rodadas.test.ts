@@ -35,7 +35,7 @@ const erroDe = async (promessa: Promise<unknown>) => {
 describe("lançar rodada", () => {
   it("abre a comanda da mesa livre e cria um trabalho por impressora", async () => {
     const m = await mesa(1);
-    const xis = await produto("Xis Bacon");
+    const xis = await produto("Xis Bah Tchê! - Bacon");
     const batata = await produto("Batata Frita");
     const agua = await produto("Água sem Gás");
     const semErvilha = await modificador("Sem ervilha");
@@ -65,7 +65,7 @@ describe("lançar rodada", () => {
     expect(itens).toHaveLength(3);
     const itemXis = itens.find((i) => i.produtoId === xis.id);
     // (32,00 + 5,00 de bacon extra) x 2
-    expect(itemXis?.totalCentavos).toBe((3200 + 500) * 2);
+    expect(itemXis?.totalCentavos).toBe((4990 + 500) * 2);
     expect(itemXis?.mesaOrigemId).toBe(m.id);
 
     const trabalhos = await db()
@@ -76,7 +76,7 @@ describe("lançar rodada", () => {
     expect(trabalhos).toHaveLength(3);
     expect(trabalhos.every((t) => t.status === "pendente")).toBe(true);
     const chapa = trabalhos.find((t) =>
-      t.payload.itens.some((i) => i.nome === "Xis Bacon"),
+      t.payload.itens.some((i) => i.nome === "Xis Bah Tchê! - Bacon"),
     );
     expect(chapa?.payload.itens[0].modificadores).toEqual([
       "Sem ervilha",
@@ -152,7 +152,7 @@ describe("lançar rodada", () => {
   });
 
   it("estoque nunca fica negativo com 20 lançamentos paralelos disputando 3 unidades", async () => {
-    const coracao = await produto("Xis Coração");
+    const coracao = await produto("Xis Tri Bom - Frango");
     await definirEstoque(coracao.id, 3);
     const mesas = await Promise.all(
       Array.from({ length: 10 }, (_, i) => mesa(i + 5)),
@@ -188,7 +188,7 @@ describe("lançar rodada", () => {
   });
 
   it("lançamento esgotado não deixa nada gravado (rollback completo)", async () => {
-    const coracao = await produto("Xis Coração");
+    const coracao = await produto("Xis Tri Bom - Frango");
     const agua = await produto("Água sem Gás");
     await definirEstoque(coracao.id, 1);
     const m = await mesa(18);

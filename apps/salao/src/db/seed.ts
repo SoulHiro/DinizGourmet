@@ -7,6 +7,7 @@ import pg from "pg";
 import { hashPin } from "@/lib/auth/pin";
 import { env } from "@/lib/env";
 import { normalizarBusca } from "@/lib/texto";
+import { CARDAPIO_EXEMPLO } from "./cardapio-exemplo";
 import * as schema from "./schema";
 
 const {
@@ -108,17 +109,32 @@ export const semear = async (connectionString: string) => {
         preco: number;
         estoque?: number;
       }[] = [
-        { categoriaId: lanches.id, nome: "Xis Salada", preco: 2800 },
-        { categoriaId: lanches.id, nome: "Xis Bacon", preco: 3200 },
-        { categoriaId: lanches.id, nome: "Xis Calabresa", preco: 3100 },
-        { categoriaId: lanches.id, nome: "Xis Frango", preco: 3000 },
         {
           categoriaId: lanches.id,
-          nome: "Xis Coração",
-          preco: 3500,
+          nome: "Xis Buenas - Clássico",
+          preco: 3990,
+        },
+        {
+          categoriaId: lanches.id,
+          nome: "Xis Bah Tchê! - Bacon",
+          preco: 4990,
+        },
+        {
+          categoriaId: lanches.id,
+          nome: "Xis Gaudério - Calabresa",
+          preco: 4990,
+        },
+        {
+          categoriaId: lanches.id,
+          nome: "Xis Tri Bom - Frango",
+          preco: 4490,
           estoque: 20,
         },
-        { categoriaId: lanches.id, nome: "Xis Tudo", preco: 4200 },
+        {
+          categoriaId: lanches.id,
+          nome: "Xis Bagual - O Bruto da Casa",
+          preco: 5990,
+        },
         { categoriaId: porcoes.id, nome: "Batata Frita", preco: 2500 },
         { categoriaId: porcoes.id, nome: "Polenta Frita", preco: 2200 },
         { categoriaId: porcoes.id, nome: "Anéis de Cebola", preco: 2400 },
@@ -161,6 +177,9 @@ export const semear = async (connectionString: string) => {
             codigo: proximoCodigo(item.categoriaId),
             nome: item.nome,
             buscaNormalizada: normalizarBusca(item.nome),
+            descricao: CARDAPIO_EXEMPLO[item.nome]?.descricao ?? null,
+            ingredientes: CARDAPIO_EXEMPLO[item.nome]?.ingredientes ?? [],
+            destaque: CARDAPIO_EXEMPLO[item.nome]?.destaque ?? false,
             precoCentavos: item.preco,
             controlaEstoque: item.estoque !== undefined,
             estoque: item.estoque ?? null,

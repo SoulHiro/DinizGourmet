@@ -13,8 +13,10 @@ import {
   GerenciaMesas,
 } from "./_components/cadastros";
 import { GerenciaCardapio } from "./_components/cardapio";
+import { ResumoNoite } from "./_components/noite";
 
 const ABAS = [
+  { valor: "noite", rotulo: "Noite" },
   { valor: "cardapio", rotulo: "Cardápio" },
   { valor: "mesas", rotulo: "Mesas" },
   { valor: "equipe", rotulo: "Equipe" },
@@ -25,7 +27,7 @@ type Aba = (typeof ABAS)[number]["valor"];
 
 export default function GerentePage() {
   const funcionario = useFuncionario();
-  const [aba, setAba] = useState<Aba>("cardapio");
+  const [aba, setAba] = useState<Aba>("noite");
 
   return (
     <div className="min-h-dvh pb-10">
@@ -60,6 +62,7 @@ export default function GerentePage() {
         ))}
       </nav>
       <main className="mx-auto max-w-3xl p-3">
+        {aba === "noite" && <ResumoNoite />}
         {aba === "cardapio" && <GerenciaCardapio />}
         {aba === "mesas" && <GerenciaMesas />}
         {aba === "equipe" && <GerenciaEquipe />}

@@ -106,7 +106,7 @@ describe("cancelamento de item", () => {
 
   it("depois de impresso com preparo iniciado: aviso na cozinha e sem devolver estoque", async () => {
     const m = await mesa(3);
-    const coracao = await produto("Xis Coração");
+    const coracao = await produto("Xis Tri Bom - Frango");
     await definirEstoque(coracao.id, 5);
     const r = await lancarRodada(garcom, m.id, {
       idempotencyKey: chave(),
@@ -128,7 +128,7 @@ describe("cancelamento de item", () => {
     const trabalhos = await trabalhosDaRodada(r.rodadaId);
     const aviso = trabalhos.find((t) => t.tipo === "cancelamento");
     expect(aviso?.status).toBe("pendente");
-    expect(aviso?.payload.itens[0].nome).toBe("Xis Coração");
+    expect(aviso?.payload.itens[0].nome).toBe("Xis Tri Bom - Frango");
     expect(aviso?.payload.preparoIniciado).toBe(true);
   });
 

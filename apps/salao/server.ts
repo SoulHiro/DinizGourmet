@@ -15,6 +15,8 @@ import { Server as SocketServer } from "socket.io";
 import { pool } from "@/db";
 import { COOKIE_SESSAO, validarToken } from "@/lib/auth/sessao";
 import { manutencaoAjudas } from "@/lib/dominio/ajuda";
+import { manutencaoChamados } from "@/lib/dominio/chamados";
+import { pastaMidia } from "@/lib/dominio/midia";
 import { env } from "@/lib/env";
 import { iniciarImpressao } from "@/lib/impressao/worker";
 import { iniciarMonitoramento } from "@/lib/monitoramento";
@@ -104,6 +106,9 @@ const main = async () => {
     manutencaoAjudas(config.AJUDA_ESCALAR_APOS_SEGUNDOS).catch((error) =>
       runtime().reportarErro?.(error, { origem: "manutencaoAjudas" }),
     );
+    manutencaoChamados(config.CHAMADO_ESCALAR_APOS_SEGUNDOS).catch((error) =>
+      runtime().reportarErro?.(error, { origem: "manutencaoChamados" }),
+    );
   }, 15_000);
 
   // Um bug de cliente em loop não pode derrubar o servidor do salão.
@@ -128,8 +133,27 @@ const main = async () => {
       mensagem: "Muitas requisições. Aguarde um instante.",
     },
   });
+  // Rota do QR é pública (celular do cliente): limite mais baixo por IP.
+  const limitePublico = rateLimit({
+    windowMs: 60_000,
+    limit: 30,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: { codigo: "muitas_requisicoes", mensagem: "Aguarde um instante." },
+  });
+  app.use("/api/publico", limitePublico);
   app.use("/api/auth/login", limiteLogin);
   app.use("/api", limiteEscrita);
+
+  // Fotos e vídeos do cardápio: nome único por arquivo, então cache longo.
+  app.use(
+    "/midia",
+    express.static(pastaMidia(), {
+      maxAge: "30d",
+      immutable: true,
+      fallthrough: false,
+    }),
+  );
 
   app.get("/health", async (_req, res) => {
     let banco = false;

@@ -31,6 +31,16 @@ const envSchema = z.object({
   RATE_LIMIT_ESCRITA_POR_MIN: z.coerce.number().default(240),
   // Pedido de ajuda sem resposta por este tempo vira alerta para o gerente.
   AJUDA_ESCALAR_APOS_SEGUNDOS: z.coerce.number().default(120),
+  // Chamado do cliente sem atendimento por este tempo vai para o gerente.
+  CHAMADO_ESCALAR_APOS_SEGUNDOS: z.coerce.number().default(180),
+  // Endereço que vai no QR das mesas (ex.: https://192.168.1.50:3000). Sem
+  // ele, o QR usa o endereço pelo qual o gerente abriu a tela.
+  PUBLIC_URL: z
+    .string()
+    .optional()
+    .transform((v) => v?.trim() || undefined),
+  // Fotos e vídeos do cardápio (no disco do PC do restaurante).
+  MIDIA_DIR: z.string().default("./midia"),
   SENTRY_DSN: z.string().optional(),
 });
 

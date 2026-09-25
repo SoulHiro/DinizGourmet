@@ -36,8 +36,34 @@ Decisões que o código assume:
 - **Código do cardápio**: cada categoria tem uma faixa (Lanches 1–19, Porções
   20–29, Bebidas 30–79, Sobremesas 80–99); produto novo pega o próximo livre.
   Digitar o número na busca acha o item; o código sai no ticket.
-- **Observações rápidas**: o "+" adiciona completos; cada chip separa 1
-  unidade com aquela observação. Ponto da carne (`tipo = preparo`) é exclusivo.
+- **Revisão antes de lançar**: o "+" só adiciona; "Revisar pedido" abre a
+  revisão, onde ficam as observações (cada chip separa 1 unidade) e o botão
+  que de fato lança. Ponto da carne (`tipo = preparo`) é exclusivo.
+- **Cardápio digital**: o QR abre `/c/<token>` (sem login) direto no
+  cardápio (banner de destaques, busca, categorias, foto/vídeo e a lista do
+  que vem no lanche) com barra fixa: Minha conta (itens ativos da comanda da
+  mesa), Chamar garçom e Pedir a conta. Só visualização: quem lança é o
+  garçom. Fotos enviadas em `/gerente` viram WebP 1200px + miniatura 480px
+  em `MIDIA_DIR`, servidas pelo Express em `/midia` (cache de 30 dias).
+  `pnpm fotos:importar <pasta>` importa uma pasta de fotos de uma vez
+  (o nome do arquivo é o nome do produto).
+- **Chamados do cliente (Fase 2)**: cada mesa tem `token_qr` secreto; o QR
+  dá acesso a "Chamar garçom" / "Pedir a conta". Um
+  chamado aberto por tipo e mesa (índice único), fila por ordem de chegada,
+  primeiro que atender leva, escalado ao gerente após
+  `CHAMADO_ESCALAR_APOS_SEGUNDOS`. `/api/publico` tem rate limit próprio.
+  `PUBLIC_URL` define o endereço impresso nos QR (`/gerente/qr`).
+- **Pedir a conta, taxa de serviço e gorjeta**: o cliente abre "Pedir a
+  conta" no QR, escolhe se paga a taxa de serviço e se deixa gorjeta, e o
+  pedido vai só para a equipe da mesa (`comanda_garcom`: titular e
+  auxiliares); sem resposta, escala para o gerente. O garçom abre
+  "Receber pagamento" já preenchido, pode corrigir e marca como paga. A taxa
+  é calculada no servidor: `taxa_servico_pct` (10%) até
+  `taxa_servico_limite_centavos` (R$ 300) e `taxa_servico_pct_reduzida`
+  (5%) acima, configuráveis em `/gerente > Noite`. Taxa e gorjeta são
+  divididas separadamente pelo valor que cada garçom lançou (maiores restos:
+  fecha no centavo) em `gorjeta_divisao` (coluna `tipo`), e aparecem
+  separadas no resumo da noite.
 - **Impressão assíncrona:** o garçom recebe sucesso na hora. A fila
   (`trabalho_impressao`) usa `FOR UPDATE SKIP LOCKED`, com retry 2s/8s/30s,
   depois `falhou` e reenvio automático quando a impressora volta. Com a
@@ -75,6 +101,7 @@ Sem impressora, `IMPRESSAO_DRIVER=arquivo` grava cada ticket em `.tickets/`
 | `pnpm test` | Testes de domínio contra o banco de teste (concorrência de estoque, idempotência, mesas, fila de impressão) |
 | `pnpm db:reset` | Recria o banco de dev (recusa qualquer host que não seja localhost) |
 | `pnpm db:generate --name x` | Nova migration a partir de `src/db/schema.ts` |
+| `pnpm fotos:importar <pasta>` | Usa cada foto da pasta no produto de mesmo nome |
 | `pnpm build` / `pnpm start` | Build de produção e servidor (`dist/iniciar.mjs`) |
 | `pnpm impressao:spike` | Lista as impressoras do Windows / imprime ticket de teste |
 | `pnpm carga` | Teste de carga (autocannon) |
@@ -91,7 +118,8 @@ Implantação**. Resumo técnico:
 3. `pnpm impressao:spike` → copiar os nomes exatos das Elgin para `/gerente > Impressoras`.
 4. `pnpm build`, depois, como Administrador: `pnpm servico:instalar` e
    `powershell -ExecutionPolicy Bypass -File ops\firewall.ps1`.
-5. Backup diário: `ops\agendar-backup.ps1` (Administrador). Destino local em
+5. Backup diário do banco e das fotos do cardápio (`midia/`):
+   `ops\agendar-backup.ps1` (Administrador). Destino local em
    `backup.ps1 -Destino`; cópia na nuvem via `XIS_BACKUP_NUVEM` (pasta
    sincronizada do Drive/OneDrive).
 6. Atualizações: `ops\deploy.ps1` (faz backup, pull, install, migrate, build e
@@ -116,10 +144,10 @@ instalada uma vez em cada celular de garçom.
 
 - **Juntar mesas** só aceita mesas livres ou abertas sem pedido. Para juntar
   duas comandas que já têm pedidos, feche ou transfira uma antes.
-- **Fechar mesa** só encerra a comanda (o pagamento é na maquininha). Caixa,
-  divisão de conta, taxa de serviço e desconto ficam para as próximas fases.
-- Status **"chamou garçom"** e **"pediu a conta"** chegam na Fase 2 (tabela de
-  chamados); as cores e rótulos já existem.
+- **Receber pagamento** registra o pagamento feito na maquininha; não há
+  integração com a maquininha nem caixa. Dividir a conta entre pessoas e
+  desconto ficam para as próximas fases.
+- O cardápio do cliente é **só visualização**: pedir pelo celular não existe.
 - **Carga medida** (máquina de dev, Postgres embutido, 120 conexões sem pausa):
   zero erros; ~136 req/s no mapa de mesas, p99 de 4s no cenário misto com 30%
   de lançamentos. O teto é o overhead do Next por requisição num único

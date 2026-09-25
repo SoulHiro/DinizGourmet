@@ -71,7 +71,10 @@ export const Cabecalho = ({
           onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
           className="flex size-12 items-center justify-center"
         >
-          {resolvedTheme === "dark" ? <Sun /> : <Moon />}
+          {/* Pelo CSS, não pelo tema: no servidor o tema ainda não é conhecido
+              e escolher o ícone em JS quebrava a hidratação. */}
+          <Sun className="hidden dark:block" />
+          <Moon className="dark:hidden" />
         </button>
         {!voltarPara && (
           <button

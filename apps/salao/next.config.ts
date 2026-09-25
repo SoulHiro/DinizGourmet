@@ -20,7 +20,11 @@ const nextConfig: NextConfig = {
       .map((origem) => origem.trim())
       .filter(Boolean),
   ],
-  serverExternalPackages: ["pg", "bcryptjs"],
+  serverExternalPackages: ["pg", "bcryptjs", "sharp"],
+  // Com proxy.ts o Next guarda o corpo da requisição em memória e corta em
+  // 10 MB: vídeos do cardápio (até 40 MB) falhavam. O upload só aceita
+  // gerente logado e o próprio código limita foto (15 MB) e vídeo (40 MB).
+  experimental: { proxyClientMaxBodySize: "50mb" },
 };
 
 export default nextConfig;

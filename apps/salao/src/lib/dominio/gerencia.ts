@@ -1,9 +1,10 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { db, schema } from "@/db";
 import type { TicketPayload } from "@/db/schema";
 import { hashPin } from "@/lib/auth/pin";
+import { configTaxa } from "@/lib/dominio/comum";
 import { conflito, naoEncontrado, violouConstraint } from "@/lib/erros";
 import { acordarImpressao, notificar, runtime } from "@/lib/runtime";
 import { normalizarBusca } from "@/lib/texto";
@@ -39,6 +40,11 @@ export const listarProdutosGerencia = async (restauranteId: string) => {
         id: p.id,
         codigo: p.codigo,
         nome: p.nome,
+        descricao: p.descricao,
+        fotoUrl: p.fotoUrl,
+        videoUrl: p.videoUrl,
+        ingredientes: p.ingredientes,
+        destaque: p.destaque,
         precoCentavos: p.precoCentavos,
         disponivel: p.disponivel,
         controlaEstoque: p.controlaEstoque,
@@ -135,8 +141,24 @@ export const criarProduto = async (
   }
 };
 
+// Só arquivos enviados pelo próprio sistema (/midia/...) ou links http(s).
+const urlMidia = z
+  .string()
+  .trim()
+  .max(500)
+  .refine(
+    (u) => u.startsWith("/midia/") || /^https?:\/\//.test(u),
+    "Endereço de mídia inválido.",
+  )
+  .nullable();
+
 export const editarProdutoSchema = z.object({
   nome: z.string().trim().min(2).max(60).optional(),
+  descricao: z.string().trim().max(400).nullable().optional(),
+  fotoUrl: urlMidia.optional(),
+  videoUrl: urlMidia.optional(),
+  ingredientes: z.array(z.string().trim().min(1).max(40)).max(30).optional(),
+  destaque: z.boolean().optional(),
   codigo: codigoSchema.nullable().optional(),
   precoCentavos: z.number().int().min(0).max(1_000_000).optional(),
   disponivel: z.boolean().optional(),
@@ -420,3 +442,140 @@ export const imprimirTeste = async (
 // Vem do server.ts pelo runtime: o addon nativo nunca entra no bundle do Next.
 export const impressorasDoSistema = async () =>
   (await runtime().impressorasDoSistema?.()) ?? [];
+
+// "Noite" = desde o meio-dia (horário de Brasília): o salão abre às 18h e
+// fecha de madrugada, então a virada do dia não pode partir o expediente.
+export const inicioDaNoite = (agora = new Date()) => {
+  const brasilia = new Date(
+    agora.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }),
+  );
+  const diferenca = agora.getTime() - brasilia.getTime();
+  const inicio = new Date(brasilia);
+  if (brasilia.getHours() < 12) inicio.setDate(inicio.getDate() - 1);
+  inicio.setHours(12, 0, 0, 0);
+  return new Date(inicio.getTime() + diferenca);
+};
+
+export type ResumoGarcom = {
+  funcionarioId: string;
+  nome: string;
+  vendasCentavos: number;
+  gorjetaCentavos: number;
+  taxaCentavos: number;
+  chamadosAtendidos: number;
+  cancelamentos: number;
+};
+
+export const resumoNoite = async (
+  restauranteId: string,
+  desde = inicioDaNoite(),
+) => {
+  const linhas = (
+    await db().execute<{
+      funcionario_id: string;
+      nome: string;
+      vendas: number;
+      gorjeta: number;
+      taxa: number;
+      chamados: number;
+      cancelamentos: number;
+    }>(sql`
+      select f.id as funcionario_id, f.nome,
+             coalesce((
+               select sum(i.total_centavos) from rodada r
+                 join item_pedido i on i.rodada_id = r.id and i.status = 'ativo'
+                where r.funcionario_id = f.id and r.lancada_em >= ${desde}
+             ), 0)::int as vendas,
+             coalesce((
+               select sum(g.valor_centavos) from gorjeta_divisao g
+                 join comanda c on c.id = g.comanda_id
+                where g.funcionario_id = f.id and g.tipo = 'gorjeta'
+                  and c.fechada_em >= ${desde}
+             ), 0)::int as gorjeta,
+             coalesce((
+               select sum(g.valor_centavos) from gorjeta_divisao g
+                 join comanda c on c.id = g.comanda_id
+                where g.funcionario_id = f.id and g.tipo = 'taxa'
+                  and c.fechada_em >= ${desde}
+             ), 0)::int as taxa,
+             (select count(*) from chamado ch
+               where ch.aceito_por = f.id and ch.aceito_em >= ${desde})::int as chamados,
+             (select count(*) from item_pedido i
+               where i.cancelado_por = f.id and i.cancelado_em >= ${desde}
+                 and i.motivo_cancelamento <> 'Alterado')::int as cancelamentos
+        from funcionario f
+       where f.restaurante_id = ${restauranteId}
+       order by f.nome
+    `)
+  ).rows;
+
+  const garcons: ResumoGarcom[] = linhas
+    .map((l) => ({
+      funcionarioId: l.funcionario_id,
+      nome: l.nome,
+      vendasCentavos: l.vendas,
+      gorjetaCentavos: l.gorjeta,
+      taxaCentavos: l.taxa,
+      chamadosAtendidos: l.chamados,
+      cancelamentos: l.cancelamentos,
+    }))
+    .filter(
+      (g) =>
+        g.vendasCentavos ||
+        g.gorjetaCentavos ||
+        g.taxaCentavos ||
+        g.chamadosAtendidos ||
+        g.cancelamentos,
+    );
+
+  return {
+    desde: desde.toISOString(),
+    garcons,
+    totalVendasCentavos: garcons.reduce((s, g) => s + g.vendasCentavos, 0),
+    totalGorjetaCentavos: garcons.reduce((s, g) => s + g.gorjetaCentavos, 0),
+    totalTaxaCentavos: garcons.reduce((s, g) => s + g.taxaCentavos, 0),
+  };
+};
+
+// Taxa de serviço: pct cheio até o limite, pct reduzido acima dele.
+export const taxaServicoSchema = z
+  .object({
+    pct: z.number().int().min(0).max(30),
+    pctReduzida: z.number().int().min(0).max(30),
+    limiteCentavos: z.number().int().min(0).max(100_000_000),
+  })
+  .refine((t) => t.pctReduzida <= t.pct, {
+    message: "A taxa reduzida não pode ser maior que a cheia",
+  });
+
+export const lerTaxaServico = (restauranteId: string) =>
+  configTaxa(db(), restauranteId);
+
+export const salvarTaxaServico = async (
+  restauranteId: string,
+  dados: z.infer<typeof taxaServicoSchema>,
+) => {
+  await db()
+    .update(schema.restaurantes)
+    .set({
+      taxaServicoPct: dados.pct,
+      taxaServicoPctReduzida: dados.pctReduzida,
+      taxaServicoLimiteCentavos: dados.limiteCentavos,
+    })
+    .where(eq(schema.restaurantes.id, restauranteId));
+  notificar(restauranteId, ["mesas"]);
+  return dados;
+};
+
+// Mesas com o link do QR (só o gerente vê os tokens).
+export const qrDasMesas = (restauranteId: string) =>
+  db()
+    .select({ numero: schema.mesas.numero, token: schema.mesas.tokenQr })
+    .from(schema.mesas)
+    .where(
+      and(
+        eq(schema.mesas.restauranteId, restauranteId),
+        eq(schema.mesas.ativa, true),
+      ),
+    )
+    .orderBy(asc(schema.mesas.numero));

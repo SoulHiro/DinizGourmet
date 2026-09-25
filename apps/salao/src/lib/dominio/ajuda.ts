@@ -10,7 +10,7 @@ import {
   violouConstraint,
 } from "@/lib/erros";
 import { notificar } from "@/lib/runtime";
-import { buscarMesa, comandaAbertaDaMesa } from "./comum";
+import { buscarMesa, comandaAbertaDaMesa, registrarGarcom } from "./comum";
 
 export type PedidoAjuda = {
   id: string;
@@ -22,6 +22,7 @@ export type PedidoAjuda = {
   aceitoPor: string | null;
   aceitoPorId: string | null;
   escalado: boolean;
+  espontaneo: boolean;
 };
 
 // Garçom sobrecarregado pede ajuda. Apertar de novo na mesma mesa não
@@ -77,6 +78,7 @@ export const listarAjudas = async (
       aceitoPor: ajudante.nome,
       aceitoPorId: schema.pedidosAjuda.aceitoPor,
       escaladoEm: schema.pedidosAjuda.escaladoEm,
+      espontaneo: schema.pedidosAjuda.espontaneo,
     })
     .from(schema.pedidosAjuda)
     .innerJoin(schema.mesas, eq(schema.mesas.id, schema.pedidosAjuda.mesaId))
@@ -103,6 +105,7 @@ export const listarAjudas = async (
     aceitoPor: l.aceitoPor,
     aceitoPorId: l.aceitoPorId,
     escalado: l.escaladoEm !== null,
+    espontaneo: l.espontaneo,
   }));
 };
 
@@ -131,6 +134,10 @@ export const aceitarAjuda = async (sessao: Sessao, pedidoId: string) => {
       "Outro garçom já aceitou este pedido de ajuda.",
     );
   }
+  // Quem aceitou vira auxiliar da comanda (entra na divisão da gorjeta).
+  const comanda = await comandaAbertaDaMesa(db(), aceito.mesaId);
+  if (comanda)
+    await registrarGarcom(db(), comanda.id, funcionarioId, "auxiliar");
   notificar(restauranteId, ["ajuda", "mesas"]);
   return aceito;
 };
@@ -198,4 +205,42 @@ export const manutencaoAjudas = async (escalarAposSegundos: number) => {
   for (const restauranteId of afetados)
     notificar(restauranteId, ["ajuda", "mesas"]);
   return { escalados: escalados.length, encerrados: encerrados.length };
+};
+
+// Garçom livre se oferece para ajudar numa mesa sem ter sido chamado: entra
+// direto como auxiliar e o titular recebe o aviso "Fulano entrou para ajudar".
+export const oferecerAjuda = async (sessao: Sessao, mesaId: string) => {
+  const { restauranteId, id: funcionarioId } = sessao.funcionario;
+  await buscarMesa(db(), restauranteId, mesaId);
+  const comanda = await comandaAbertaDaMesa(db(), mesaId);
+  if (!comanda) {
+    throw conflito("mesa_livre", "Esta mesa ainda não tem comanda aberta.");
+  }
+  if (comanda.garcomTitularId === funcionarioId) {
+    throw conflito("ja_titular", "Você já é o garçom desta mesa.");
+  }
+  const [jaEsta] = await db()
+    .select()
+    .from(schema.comandaGarcons)
+    .where(
+      and(
+        eq(schema.comandaGarcons.comandaId, comanda.id),
+        eq(schema.comandaGarcons.funcionarioId, funcionarioId),
+      ),
+    );
+  if (jaEsta)
+    throw conflito("ja_auxiliar", "Você já está ajudando nesta mesa.");
+
+  await registrarGarcom(db(), comanda.id, funcionarioId, "auxiliar");
+  await db().insert(schema.pedidosAjuda).values({
+    restauranteId,
+    mesaId,
+    comandaId: comanda.id,
+    solicitanteId: comanda.garcomTitularId,
+    aceitoPor: funcionarioId,
+    aceitoEm: new Date(),
+    espontaneo: true,
+  });
+  notificar(restauranteId, ["ajuda", "mesas", `comanda:${comanda.id}`]);
+  return { comandaId: comanda.id };
 };

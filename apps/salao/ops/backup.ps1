@@ -36,6 +36,20 @@ if ($Nuvem) {
   }
 }
 
+# Fotos e vídeos do cardápio (MIDIA_DIR): cada arquivo tem nome único e nunca
+# muda, então basta copiar os novos. Nada é apagado no destino.
+$midiaCfg = (Get-Content $envArquivo | Where-Object { $_ -match '^MIDIA_DIR=' }) -replace '^MIDIA_DIR=', ''
+if (-not $midiaCfg) { $midiaCfg = "midia" }
+$midia = if ([System.IO.Path]::IsPathRooted($midiaCfg)) { $midiaCfg } else { Join-Path $app $midiaCfg }
+if (Test-Path $midia) {
+  foreach ($alvo in @($Destino) + @($Nuvem | Where-Object { $_ })) {
+    robocopy $midia (Join-Path $alvo "midia") /E /XO /NP /NJH /NJS /R:1 /W:1 | Out-Null
+    # robocopy: 0-7 = ok (com ou sem arquivos copiados); 8+ = falha.
+    if ($LASTEXITCODE -ge 8) { Write-Warning "Falha ao copiar as fotos para $alvo" }
+    else { Write-Host "Fotos do cardápio copiadas para $alvo\midia" }
+  }
+}
+
 # Retenção: apaga backups locais mais velhos que $ManterDias.
 Get-ChildItem $Destino -Filter "salao-*.dump" |
   Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$ManterDias) } |

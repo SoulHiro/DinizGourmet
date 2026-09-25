@@ -1,7 +1,8 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Plus, Printer } from "lucide-react";
+import { KeyRound, Plus, Printer, QrCode } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -78,6 +79,11 @@ export const GerenciaMesas = () => {
       <p className="text-sm text-texto-secundario">
         Toque numa mesa para ativar/desativar.
       </p>
+      <Button asChild variant="marca" className="self-start">
+        <Link href="/gerente/qr">
+          <QrCode /> QR codes para imprimir
+        </Link>
+      </Button>
       <div className="grid grid-cols-5 gap-2 sm:grid-cols-8">
         {mesas?.map((m) => (
           <button

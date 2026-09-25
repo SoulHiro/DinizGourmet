@@ -69,3 +69,45 @@ export const mesasDaComanda = async (conexao: Conexao, comandaId: string) => {
     }))
     .sort((a, b) => Number(b.principal) - Number(a.principal));
 };
+
+// Registra o garçom na comanda (titular ou auxiliar). Idempotente.
+export const registrarGarcom = async (
+  conexao: Conexao,
+  comandaId: string,
+  funcionarioId: string,
+  papel: "titular" | "auxiliar",
+) => {
+  await conexao
+    .insert(schema.comandaGarcons)
+    .values({ comandaId, funcionarioId, papel })
+    .onConflictDoNothing();
+};
+
+export const configTaxa = async (conexao: Conexao, restauranteId: string) => {
+  const [r] = await conexao
+    .select({
+      pct: schema.restaurantes.taxaServicoPct,
+      pctReduzida: schema.restaurantes.taxaServicoPctReduzida,
+      limiteCentavos: schema.restaurantes.taxaServicoLimiteCentavos,
+    })
+    .from(schema.restaurantes)
+    .where(eq(schema.restaurantes.id, restauranteId));
+  return r ?? { pct: 10, pctReduzida: 5, limiteCentavos: 30000 };
+};
+
+// Soma dos itens ativos da comanda (base da taxa de serviço).
+export const subtotalDaComanda = async (
+  conexao: Conexao,
+  comandaId: string,
+) => {
+  const itens = await conexao
+    .select({ total: schema.itensPedido.totalCentavos })
+    .from(schema.itensPedido)
+    .where(
+      and(
+        eq(schema.itensPedido.comandaId, comandaId),
+        eq(schema.itensPedido.status, "ativo"),
+      ),
+    );
+  return itens.reduce((s, i) => s + i.total, 0);
+};

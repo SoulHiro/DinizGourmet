@@ -51,7 +51,7 @@ const itemAtivoDaRodada = async (rodadaId: string) => {
 describe("editar item lançado", () => {
   it("com o ticket ainda na fila, corrige o próprio ticket (sem aviso extra)", async () => {
     const m = await mesa(1);
-    const xis = await produto("Xis Bacon");
+    const xis = await produto("Xis Bah Tchê! - Bacon");
     const semTomate = await modificador("Sem tomate");
     const r = await lancarRodada(garcomA, m.id, {
       idempotencyKey: chave(),
@@ -77,7 +77,7 @@ describe("editar item lançado", () => {
     const novo = await itemAtivoDaRodada(r.rodadaId);
     expect(novo?.substituiItemId).toBe(original.id);
     expect(novo?.quantidade).toBe(1);
-    expect(novo?.totalCentavos).toBe(3200);
+    expect(novo?.totalCentavos).toBe(4990);
 
     const trabalhos = await trabalhosDaRodada(r.rodadaId);
     expect(trabalhos).toHaveLength(1);
@@ -97,7 +97,7 @@ describe("editar item lançado", () => {
 
   it("com o ticket já impresso, gera ticket de ALTERAÇÃO com antes e depois", async () => {
     const m = await mesa(2);
-    const xis = await produto("Xis Salada");
+    const xis = await produto("Xis Buenas - Clássico");
     const r = await lancarRodada(garcomA, m.id, {
       idempotencyKey: chave(),
       itens: [{ produtoId: xis.id, quantidade: 1, modificadorIds: [] }],
@@ -162,7 +162,7 @@ describe("editar item lançado", () => {
 
   it("não aceita dois pontos da carne no mesmo item", async () => {
     const m = await mesa(4);
-    const xis = await produto("Xis Tudo");
+    const xis = await produto("Xis Bagual - O Bruto da Casa");
     const mal = await modificador("Mal passado");
     const bem = await modificador("Bem passado");
     await expect(
@@ -238,7 +238,7 @@ describe("códigos do cardápio", () => {
     const restauranteId = garcomA.funcionario.restauranteId;
     const cardapio = await listarCardapio(restauranteId);
     const lanches = cardapio.find((c) => c.nome === "Lanches");
-    expect(lanches?.produtos.map((p) => p.codigo)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(lanches?.produtos.map((p) => p.codigo)).toEqual([1, 2, 3, 4, 5]);
     expect(cardapio.find((c) => c.nome === "Bebidas")?.produtos[0].codigo).toBe(
       30,
     );
@@ -250,14 +250,14 @@ describe("códigos do cardápio", () => {
       controlaEstoque: false,
       estoque: null,
     });
-    expect(novo.codigo).toBe(7);
+    expect(novo.codigo).toBe(6);
 
     await expect(
       criarProduto(restauranteId, {
         categoriaId: lanches?.id ?? "",
         nome: "Repetido",
         precoCentavos: 100,
-        codigo: 7,
+        codigo: 6,
         controlaEstoque: false,
         estoque: null,
       }),

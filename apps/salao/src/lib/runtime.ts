@@ -7,6 +7,7 @@ export type Escopo =
   | "cardapio"
   | "impressao"
   | "ajuda"
+  | "chamados"
   | `comanda:${string}`;
 
 type Runtime = {
