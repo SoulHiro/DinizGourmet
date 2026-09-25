@@ -60,6 +60,28 @@ export const tipoChamadoEnum = pgEnum("tipo_chamado", ["garcom", "conta"]);
 
 export const tipoRepasseEnum = pgEnum("tipo_repasse", ["gorjeta", "taxa"]);
 
+// Por que a taxa de serviço não foi cobrada (relatório por motivo e garçom).
+export const motivoSemTaxaEnum = pgEnum("motivo_sem_taxa", [
+  "cliente_recusou",
+  "erro_atendimento",
+  "demora_preparo",
+  "cortesia",
+  "outro",
+]);
+
+export const metodoPagamentoEnum = pgEnum("metodo_pagamento", [
+  "dinheiro",
+  "credito",
+  "debito",
+  "pix",
+  "vale_refeicao",
+]);
+
+export const tipoDescontoEnum = pgEnum("tipo_desconto", [
+  "percentual",
+  "valor",
+]);
+
 export const papelNaComandaEnum = pgEnum("papel_na_comanda", [
   "titular",
   "auxiliar",
@@ -70,6 +92,8 @@ export const tipoTrabalhoImpressaoEnum = pgEnum("tipo_trabalho_impressao", [
   "cancelamento",
   "reimpressao",
   "alteracao",
+  // Conta do cliente (pré-conta ou comprovante), na impressora do caixa.
+  "conta",
 ]);
 
 export const statusTrabalhoImpressaoEnum = pgEnum("status_trabalho_impressao", [
@@ -229,6 +253,11 @@ export const modificadores = pgTable(
     nome: text("nome").notNull(),
     tipo: tipoModificadorEnum("tipo").notNull().default("remocao"),
     precoCentavos: integer("preco_centavos").notNull().default(0),
+    // Adicional que gasta um insumo (ex.: "Bacon extra" gasta Bacon). Sem
+    // estoque do insumo, só o chip fica cinza; o lanche continua disponível.
+    insumoId: uuid("insumo_id").references(() => insumos.id, {
+      onDelete: "set null",
+    }),
     ativo: boolean("ativo").notNull().default(true),
     criadoEm: criadoEm(),
     atualizadoEm: atualizadoEm(),
@@ -249,6 +278,68 @@ export const produtoModificadores = pgTable(
     ordem: integer("ordem").notNull().default(0),
   },
   (t) => [primaryKey({ columns: [t.produtoId, t.modificadorId] })],
+);
+
+// Ingredientes com contagem da noite (bacon, calabresa, pão...). Estoque
+// nulo = não controlado. Insumo base esgotado deixa o produto indisponível.
+export const insumos = pgTable(
+  "insumo",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    restauranteId: uuid("restaurante_id")
+      .notNull()
+      .references(() => restaurantes.id),
+    nome: text("nome").notNull(),
+    // Unidade só para exibição ("un", "porção", "fatia").
+    unidade: text("unidade").notNull().default("un"),
+    estoque: integer("estoque"),
+    ativo: boolean("ativo").notNull().default(true),
+    criadoEm: criadoEm(),
+    atualizadoEm: atualizadoEm(),
+  },
+  (t) => [
+    uniqueIndex("insumo_restaurante_nome_idx").on(t.restauranteId, t.nome),
+    check("insumo_estoque_nao_negativo", sql`${t.estoque} >= 0`),
+  ],
+);
+
+// Receita: quanto de cada insumo base uma unidade do produto gasta.
+export const produtoInsumos = pgTable(
+  "produto_insumo",
+  {
+    produtoId: uuid("produto_id")
+      .notNull()
+      .references(() => produtos.id, { onDelete: "cascade" }),
+    insumoId: uuid("insumo_id")
+      .notNull()
+      .references(() => insumos.id, { onDelete: "cascade" }),
+    quantidade: integer("quantidade").notNull().default(1),
+  },
+  (t) => [
+    primaryKey({ columns: [t.produtoId, t.insumoId] }),
+    index("produto_insumo_insumo_idx").on(t.insumoId),
+    check("produto_insumo_quantidade_positiva", sql`${t.quantidade} > 0`),
+  ],
+);
+
+// Descontos pré-cadastrados (o garçom só aplica estes; valor livre é do
+// caixa/gerente).
+export const descontos = pgTable(
+  "desconto",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    restauranteId: uuid("restaurante_id")
+      .notNull()
+      .references(() => restaurantes.id),
+    nome: text("nome").notNull(),
+    tipo: tipoDescontoEnum("tipo").notNull(),
+    // Percentual (0-100) ou centavos, conforme o tipo.
+    valor: integer("valor").notNull(),
+    ativo: boolean("ativo").notNull().default(true),
+    criadoEm: criadoEm(),
+    atualizadoEm: atualizadoEm(),
+  },
+  (t) => [index("desconto_restaurante_idx").on(t.restauranteId)],
 );
 
 export const mesas = pgTable(
@@ -295,11 +386,52 @@ export const comandas = pgTable(
     gorjetaCentavos: integer("gorjeta_centavos"),
     // Taxa de serviço cobrada no fechamento (null = cliente não quis pagar).
     taxaServicoCentavos: integer("taxa_servico_centavos"),
+    // Taxa não cobrada: motivo obrigatório e quem registrou.
+    semTaxaMotivo: motivoSemTaxaEnum("sem_taxa_motivo"),
+    semTaxaObservacao: text("sem_taxa_observacao"),
+    // Desconto aplicado ao receber (pré-cadastrado ou livre) e quem aplicou.
+    descontoCentavos: integer("desconto_centavos"),
+    descontoNome: text("desconto_nome"),
+    descontoId: uuid("desconto_id").references(() => descontos.id),
+    // Quem recebeu o pagamento (e registrou taxa/desconto).
+    fechadaPor: uuid("fechada_por").references(() => funcionarios.id),
     atualizadoEm: atualizadoEm(),
   },
   (t) => [
     index("comanda_restaurante_status_idx").on(t.restauranteId, t.status),
     index("comanda_mesa_principal_idx").on(t.mesaPrincipalId),
+    // Histórico do caixa: contas por data de fechamento.
+    index("comanda_restaurante_fechada_idx").on(t.restauranteId, t.fechadaEm),
+  ],
+);
+
+// Pagamentos da conta: pode ser dividida entre métodos (parte no dinheiro,
+// parte no cartão). No dinheiro guarda quanto o cliente entregou e o troco.
+export const pagamentos = pgTable(
+  "pagamento",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    restauranteId: uuid("restaurante_id")
+      .notNull()
+      .references(() => restaurantes.id),
+    comandaId: uuid("comanda_id")
+      .notNull()
+      .references(() => comandas.id),
+    metodo: metodoPagamentoEnum("metodo").notNull(),
+    // Quanto deste pagamento abate da conta.
+    valorCentavos: integer("valor_centavos").notNull(),
+    // Só dinheiro: quanto o cliente entregou e quanto voltou de troco.
+    recebidoCentavos: integer("recebido_centavos"),
+    trocoCentavos: integer("troco_centavos").notNull().default(0),
+    funcionarioId: uuid("funcionario_id")
+      .notNull()
+      .references(() => funcionarios.id),
+    criadoEm: criadoEm(),
+  },
+  (t) => [
+    index("pagamento_comanda_idx").on(t.comandaId),
+    index("pagamento_restaurante_data_idx").on(t.restauranteId, t.criadoEm),
+    check("pagamento_valor_positivo", sql`${t.valorCentavos} > 0`),
   ],
 );
 
@@ -429,6 +561,36 @@ export type TicketItem = {
   mesaOrigem: number;
 };
 
+// Conta impressa para o cliente (não é documento fiscal).
+export type ContaImpressa = {
+  restaurante: string;
+  // Com pagamento registrado vira comprovante; sem, é a pré-conta.
+  paga: boolean;
+  abertaEm: string;
+  fechadaEm: string | null;
+  garcons: string[];
+  itens: {
+    quantidade: number;
+    nome: string;
+    totalCentavos: number;
+    mesaOrigem: number;
+  }[];
+  porMesa: { numero: number; totalCentavos: number }[];
+  subtotalCentavos: number;
+  descontoCentavos: number;
+  descontoNome: string | null;
+  taxaPct: number;
+  taxaCentavos: number;
+  gorjetaCentavos: number;
+  totalCentavos: number;
+  pagamentos: {
+    metodo: string;
+    valorCentavos: number;
+    recebidoCentavos: number | null;
+    trocoCentavos: number;
+  }[];
+};
+
 export type TicketPayload = {
   mesas: number[];
   garcom: string;
@@ -439,6 +601,8 @@ export type TicketPayload = {
   preparoIniciado?: boolean;
   // Ticket de ALTERAÇÃO: como o item era antes (itens = como ficou).
   antes?: TicketItem[];
+  // Só no tipo "conta".
+  conta?: ContaImpressa;
 };
 
 // Fila de impressão persistente. O worker consome com FOR UPDATE SKIP LOCKED,

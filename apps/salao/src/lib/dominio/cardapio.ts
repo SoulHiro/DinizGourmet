@@ -1,6 +1,7 @@
 import { and, asc, eq } from "drizzle-orm";
 
 import { db, schema } from "@/db";
+import { estoqueDosInsumos, faltaInsumoBase } from "./estoque";
 
 export type TipoModificador = "remocao" | "adicional" | "preparo";
 
@@ -19,6 +20,8 @@ export type ProdutoCardapio = {
     nome: string;
     tipo: TipoModificador;
     precoCentavos: number;
+    // Adicional cujo insumo acabou: chip cinza, o lanche continua disponível.
+    esgotado: boolean;
   }[];
 };
 
@@ -54,6 +57,11 @@ export const listarCardapio = async (
     },
   });
 
+  const [estoque, receitas] = await Promise.all([
+    estoqueDosInsumos(db(), restauranteId),
+    receitasDoRestaurante(restauranteId),
+  ]);
+
   return categorias.map((categoria) => ({
     id: categoria.id,
     nome: categoria.nome,
@@ -68,7 +76,8 @@ export const listarCardapio = async (
       estoque: produto.controlaEstoque ? produto.estoque : null,
       esgotado:
         !produto.disponivel ||
-        (produto.controlaEstoque && (produto.estoque ?? 0) <= 0),
+        (produto.controlaEstoque && (produto.estoque ?? 0) <= 0) ||
+        faltaInsumoBase(receitas.get(produto.id) ?? [], estoque),
       modificadores: produto.modificadores
         .filter((v) => v.modificador.ativo)
         .map((v) => ({
@@ -76,7 +85,41 @@ export const listarCardapio = async (
           nome: v.modificador.nome,
           tipo: v.modificador.tipo,
           precoCentavos: v.modificador.precoCentavos,
+          esgotado: adicionalEsgotado(v.modificador, estoque),
         })),
     })),
   }));
 };
+
+// Receita (insumos base) de cada produto do restaurante.
+export const receitasDoRestaurante = async (restauranteId: string) => {
+  const linhas = await db()
+    .select({
+      produtoId: schema.produtoInsumos.produtoId,
+      insumoId: schema.produtoInsumos.insumoId,
+      quantidade: schema.produtoInsumos.quantidade,
+    })
+    .from(schema.produtoInsumos)
+    .innerJoin(
+      schema.produtos,
+      eq(schema.produtos.id, schema.produtoInsumos.produtoId),
+    )
+    .where(eq(schema.produtos.restauranteId, restauranteId));
+  const porProduto = new Map<
+    string,
+    { insumoId: string; quantidade: number }[]
+  >();
+  for (const l of linhas) {
+    porProduto.set(l.produtoId, [...(porProduto.get(l.produtoId) ?? []), l]);
+  }
+  return porProduto;
+};
+
+export const adicionalEsgotado = (
+  modificador: { tipo: TipoModificador; insumoId: string | null },
+  estoque: Map<string, number>,
+) =>
+  modificador.tipo === "adicional" &&
+  modificador.insumoId !== null &&
+  estoque.has(modificador.insumoId) &&
+  (estoque.get(modificador.insumoId) ?? 0) < 1;

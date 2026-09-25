@@ -9,6 +9,7 @@ import {
   HandHeart,
   Loader2,
   MoreVertical,
+  Printer,
   Split,
 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
@@ -16,6 +17,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { useFuncionario } from "@/components/providers/sessao";
+import { Recebimento } from "@/components/salao/recebimento";
 import { Button } from "@/components/ui/button";
 import {
   Drawer,
@@ -26,7 +28,6 @@ import {
 } from "@/components/ui/drawer";
 import { api } from "@/lib/cliente";
 import { useMapa } from "@/lib/consultas";
-import { dividirGorjeta } from "@/lib/dominio/gorjeta";
 import type { DetalheMesa } from "@/lib/dominio/mesas";
 import { cn, formatBRL } from "@/lib/utils";
 
@@ -38,8 +39,6 @@ export const AcoesMesa = ({ detalhe }: { detalhe: DetalheMesa }) => {
   const { data: mapa } = useMapa();
   const [modo, setModo] = useState<Modo | null>(null);
   const [selecionadas, setSelecionadas] = useState<string[]>([]);
-  const [gorjeta, setGorjeta] = useState("");
-  const [taxaServico, setTaxaServico] = useState(true);
   const eu = useFuncionario();
   const pathname = usePathname();
 
@@ -48,23 +47,11 @@ export const AcoesMesa = ({ detalhe }: { detalhe: DetalheMesa }) => {
     !comanda || comanda.mesas.find((m) => m.principal)?.id === mesa.id;
   const livres =
     mapa?.filter((m) => m.status === "livre" && m.id !== mesa.id) ?? [];
+  const souDaMesa = comanda?.equipe.some((e) => e.id === eu.id) ?? false;
 
   const fechar = () => {
     setModo(null);
     setSelecionadas([]);
-    setGorjeta("");
-  };
-
-  // Receber pagamento: parte do que o cliente escolheu no QR, se pediu.
-  const abrirPagamento = () => {
-    const pedido = comanda?.pedidoConta;
-    setTaxaServico(pedido?.taxaServico ?? true);
-    setGorjeta(
-      pedido?.gorjetaCentavos
-        ? (pedido.gorjetaCentavos / 100).toFixed(2).replace(".", ",")
-        : "",
-    );
-    setModo("fechar");
   };
 
   // Vindo do alerta "pediu a conta" (?receber), abre direto o pagamento.
@@ -72,38 +59,13 @@ export const AcoesMesa = ({ detalhe }: { detalhe: DetalheMesa }) => {
   useEffect(() => {
     if (!comanda) return;
     if (new URLSearchParams(window.location.search).has("receber")) {
-      abrirPagamento();
+      setModo("fechar");
       router.replace(pathname);
     }
   }, []);
 
-  const gorjetaCentavos = Math.max(
-    0,
-    Math.round(Number.parseFloat(gorjeta.replace(",", ".") || "0") * 100) || 0,
-  );
-  const taxaCentavos = comanda && taxaServico ? comanda.taxa.valorCentavos : 0;
-  const totalCobrar =
-    (comanda?.totalCentavos ?? 0) + taxaCentavos + gorjetaCentavos;
-  // Prévia da divisão (o servidor refaz a conta ao fechar).
-  const dividir = (valor: number) =>
-    comanda && valor > 0
-      ? dividirGorjeta(
-          valor,
-          comanda.equipe.map((e) => ({
-            funcionarioId: e.id,
-            baseCentavos: e.baseCentavos,
-          })),
-          comanda.titularId,
-        )
-      : [];
-  const previaGorjeta = dividir(gorjetaCentavos);
-  const previaTaxa = dividir(taxaCentavos);
-  const souDaMesa = comanda?.equipe.some((e) => e.id === eu.id) ?? false;
-
   const acao = useMutation({
-    mutationFn: async (
-      tipo: "juntar" | "transferir" | "separar" | "fechar",
-    ) => {
+    mutationFn: async (tipo: "juntar" | "transferir" | "separar") => {
       const caminho = `/api/mesas/${mesa.id}/${tipo}`;
       if (tipo === "juntar")
         return api(caminho, {
@@ -116,12 +78,6 @@ export const AcoesMesa = ({ detalhe }: { detalhe: DetalheMesa }) => {
           json: { destinoMesaId: selecionadas[0] },
         });
       }
-      if (tipo === "fechar") {
-        return api(caminho, {
-          method: "POST",
-          json: { taxaServico, gorjetaCentavos },
-        });
-      }
       return api(caminho, { method: "POST" });
     },
     onSuccess: (_resultado, tipo) => {
@@ -130,13 +86,12 @@ export const AcoesMesa = ({ detalhe }: { detalhe: DetalheMesa }) => {
         juntar: "Mesas juntadas",
         transferir: "Comanda transferida",
         separar: `Mesa ${mesa.numero} separada`,
-        fechar: `Conta paga, mesa ${mesa.numero} liberada`,
       };
       toast.success(mensagens[tipo]);
       fechar();
       if (tipo === "transferir")
         router.replace(`/garcom/mesa/${selecionadas[0]}`);
-      if (tipo === "fechar" || tipo === "separar") router.push("/garcom");
+      if (tipo === "separar") router.push("/garcom");
     },
     onError: (error) => toast.error(error.message),
   });
@@ -178,6 +133,17 @@ export const AcoesMesa = ({ detalhe }: { detalhe: DetalheMesa }) => {
     onError: (error) => toast.error(error.message),
   });
 
+  // Conferência da conta, impressa no caixa (o cliente pediu para ver).
+  const imprimir = useMutation({
+    mutationFn: () =>
+      api(`/api/mesas/${mesa.id}/imprimir-conta`, { method: "POST" }),
+    onSuccess: () => {
+      toast.success("Conta enviada para a impressora do caixa");
+      fechar();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
   const opcoes = [
     {
       modo: "juntar" as const,
@@ -214,7 +180,7 @@ export const AcoesMesa = ({ detalhe }: { detalhe: DetalheMesa }) => {
         open={modo !== null}
         onOpenChange={(aberto) => !aberto && fechar()}
       >
-        <DrawerContent>
+        <DrawerContent className={cn(modo === "fechar" && "h-[94dvh]")}>
           <DrawerHeader className="text-left">
             <DrawerTitle className="text-xl">
               {modo === "juntar" && `Juntar com a mesa ${mesa.numero}`}
@@ -226,7 +192,7 @@ export const AcoesMesa = ({ detalhe }: { detalhe: DetalheMesa }) => {
 
           <div className="overflow-y-auto px-4">
             {modo === "menu" && (
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-2 pb-4">
                 <Button
                   size="lg"
                   variant="acao"
@@ -246,6 +212,17 @@ export const AcoesMesa = ({ detalhe }: { detalhe: DetalheMesa }) => {
                     <HandHeart /> Ajudar nesta mesa (entrar como auxiliar)
                   </Button>
                 )}
+                {comanda && (
+                  <Button
+                    size="lg"
+                    className="justify-start"
+                    disabled={imprimir.isPending}
+                    onClick={() => imprimir.mutate()}
+                  >
+                    <Printer /> Imprimir conta (
+                    {formatBRL(comanda.totalCentavos)})
+                  </Button>
+                )}
                 {opcoes
                   .filter((o) => o.visivel)
                   .map((o) => (
@@ -253,9 +230,7 @@ export const AcoesMesa = ({ detalhe }: { detalhe: DetalheMesa }) => {
                       key={o.modo}
                       size="lg"
                       className="justify-start"
-                      onClick={() =>
-                        o.modo === "fechar" ? abrirPagamento() : setModo(o.modo)
-                      }
+                      onClick={() => setModo(o.modo)}
                     >
                       <o.icone /> {o.rotulo}
                     </Button>
@@ -301,148 +276,36 @@ export const AcoesMesa = ({ detalhe }: { detalhe: DetalheMesa }) => {
             )}
 
             {modo === "fechar" && comanda && (
-              <div className="flex flex-col gap-4">
-                {comanda.pedidoConta && (
-                  <p className="rounded-xl bg-status-conta/10 p-3 text-sm">
-                    O cliente pediu a conta pelo QR
-                    {comanda.pedidoConta.taxaServico
-                      ? " com taxa de serviço"
-                      : " sem taxa de serviço"}
-                    {comanda.pedidoConta.gorjetaCentavos > 0 &&
-                      ` e ${formatBRL(comanda.pedidoConta.gorjetaCentavos)} de gorjeta`}
-                    .
-                  </p>
-                )}
-
-                <dl className="grid grid-cols-2 gap-y-1 rounded-xl border border-borda p-4">
-                  <dt className="text-texto-secundario">Consumo</dt>
-                  <dd className="text-right">
-                    {formatBRL(comanda.totalCentavos)}
-                  </dd>
-                  <dt className="text-texto-secundario">
-                    Taxa de serviço ({comanda.taxa.pct}%)
-                  </dt>
-                  <dd className="text-right">
-                    {taxaServico ? formatBRL(taxaCentavos) : "Não paga"}
-                  </dd>
-                  <dt className="text-texto-secundario">Gorjeta</dt>
-                  <dd className="text-right">{formatBRL(gorjetaCentavos)}</dd>
-                  <dt className="mt-2 self-center font-semibold">
-                    Cobrar na maquininha
-                  </dt>
-                  <dd className="mt-2 text-right font-bold text-3xl">
-                    {formatBRL(totalCobrar)}
-                  </dd>
-                </dl>
-
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={taxaServico}
-                  onClick={() => setTaxaServico((v) => !v)}
-                  className="flex h-12 items-center justify-between rounded-lg border border-borda px-3 font-semibold"
-                >
-                  Cliente paga a taxa de serviço
-                  <span
-                    className={cn(
-                      "flex h-7 w-12 items-center rounded-full p-0.5 transition-colors",
-                      taxaServico ? "bg-acao" : "bg-borda",
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "size-6 rounded-full bg-white shadow transition-transform",
-                        taxaServico && "translate-x-5",
-                      )}
-                    />
-                  </span>
-                </button>
-
-                <div>
-                  <p className="mb-2 font-semibold">Gorjeta</p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      variant={gorjetaCentavos === 0 ? "marca" : "outline"}
-                      onClick={() => setGorjeta("")}
-                    >
-                      Sem gorjeta
-                    </Button>
-                    <input
-                      inputMode="decimal"
-                      placeholder="Valor (R$)"
-                      value={gorjeta}
-                      onChange={(e) => setGorjeta(e.target.value)}
-                      className="h-12 min-w-36 flex-1 rounded-lg border border-borda bg-surface px-3"
-                    />
-                  </div>
-                </div>
-
-                {(previaGorjeta.length > 0 || previaTaxa.length > 0) && (
-                  <div className="rounded-xl bg-fundo p-3">
-                    <p className="mb-1 font-semibold text-sm">
-                      Divisão (pelo valor que cada um lançou)
-                    </p>
-                    <ul className="flex flex-col gap-1 text-sm">
-                      {comanda.equipe.map((e) => {
-                        const valor = (lista: typeof previaTaxa) =>
-                          lista.find((p) => p.funcionarioId === e.id)
-                            ?.valorCentavos ?? 0;
-                        return (
-                          <li key={e.id} className="flex justify-between gap-2">
-                            <span>
-                              {e.nome}
-                              <span className="text-texto-secundario">
-                                {" "}
-                                · lançou {formatBRL(e.baseCentavos)}
-                              </span>
-                            </span>
-                            <span className="text-right">
-                              {previaTaxa.length > 0 && (
-                                <span className="block">
-                                  taxa{" "}
-                                  <strong>
-                                    {formatBRL(valor(previaTaxa))}
-                                  </strong>
-                                </span>
-                              )}
-                              {previaGorjeta.length > 0 && (
-                                <span className="block">
-                                  gorjeta{" "}
-                                  <strong>
-                                    {formatBRL(valor(previaGorjeta))}
-                                  </strong>
-                                </span>
-                              )}
-                            </span>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </div>
-                )}
-              </div>
+              <Recebimento
+                mesaId={mesa.id}
+                comanda={comanda}
+                onPago={(r) => {
+                  toast.success(
+                    r.trocoCentavos > 0
+                      ? `Conta paga. Troco: ${formatBRL(r.trocoCentavos)}`
+                      : `Conta paga, mesa ${mesa.numero} liberada`,
+                  );
+                  fechar();
+                  router.push("/garcom");
+                }}
+              />
             )}
           </div>
 
-          {modo && modo !== "menu" && (
+          {(modo === "juntar" || modo === "transferir") && (
             <DrawerFooter>
               <Button
                 variant="acao"
                 size="lg"
-                disabled={
-                  acao.isPending ||
-                  (modo !== "fechar" && selecionadas.length === 0)
-                }
+                disabled={acao.isPending || selecionadas.length === 0}
                 onClick={() => acao.mutate(modo)}
               >
                 {acao.isPending ? (
                   <Loader2 className="animate-spin" />
                 ) : modo === "juntar" ? (
                   "Juntar"
-                ) : modo === "transferir" ? (
-                  "Transferir"
                 ) : (
-                  `Conta paga · ${formatBRL(totalCobrar)}`
+                  "Transferir"
                 )}
               </Button>
             </DrawerFooter>

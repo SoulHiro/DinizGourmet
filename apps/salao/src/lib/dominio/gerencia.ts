@@ -5,6 +5,8 @@ import { db, schema } from "@/db";
 import type { TicketPayload } from "@/db/schema";
 import { hashPin } from "@/lib/auth/pin";
 import { configTaxa } from "@/lib/dominio/comum";
+import { apagarMidia } from "@/lib/dominio/midia";
+import type { MotivoSemTaxa } from "@/lib/dominio/taxa";
 import { conflito, naoEncontrado, violouConstraint } from "@/lib/erros";
 import { acordarImpressao, notificar, runtime } from "@/lib/runtime";
 import { normalizarBusca } from "@/lib/texto";
@@ -174,6 +176,13 @@ export const editarProduto = async (
   input: z.infer<typeof editarProdutoSchema>,
 ) => {
   try {
+    const [anterior] = await db()
+      .select({
+        fotoUrl: schema.produtos.fotoUrl,
+        videoUrl: schema.produtos.videoUrl,
+      })
+      .from(schema.produtos)
+      .where(eq(schema.produtos.id, produtoId));
     const [produto] = await db()
       .update(schema.produtos)
       .set({
@@ -191,6 +200,12 @@ export const editarProduto = async (
       )
       .returning();
     if (!produto) throw naoEncontrado("Produto");
+    // Foto ou vídeo trocado/removido: apaga o arquivo antigo da pasta.
+    for (const campo of ["fotoUrl", "videoUrl"] as const) {
+      if (anterior?.[campo] && anterior[campo] !== produto[campo]) {
+        await apagarMidia(anterior[campo]);
+      }
+    }
     notificar(restauranteId, ["cardapio"]);
     return produto;
   } catch (error) {
@@ -462,6 +477,9 @@ export type ResumoGarcom = {
   vendasCentavos: number;
   gorjetaCentavos: number;
   taxaCentavos: number;
+  // Contas recebidas por ele sem taxa de serviço e descontos que aplicou.
+  semTaxa: number;
+  descontoCentavos: number;
   chamadosAtendidos: number;
   cancelamentos: number;
 };
@@ -477,6 +495,8 @@ export const resumoNoite = async (
       vendas: number;
       gorjeta: number;
       taxa: number;
+      sem_taxa: number;
+      desconto: number;
       chamados: number;
       cancelamentos: number;
     }>(sql`
@@ -498,6 +518,13 @@ export const resumoNoite = async (
                 where g.funcionario_id = f.id and g.tipo = 'taxa'
                   and c.fechada_em >= ${desde}
              ), 0)::int as taxa,
+             (select count(*) from comanda c
+               where c.fechada_por = f.id and c.fechada_em >= ${desde}
+                 and c.sem_taxa_motivo is not null)::int as sem_taxa,
+             coalesce((
+               select sum(c.desconto_centavos) from comanda c
+                where c.fechada_por = f.id and c.fechada_em >= ${desde}
+             ), 0)::int as desconto,
              (select count(*) from chamado ch
                where ch.aceito_por = f.id and ch.aceito_em >= ${desde})::int as chamados,
              (select count(*) from item_pedido i
@@ -516,6 +543,8 @@ export const resumoNoite = async (
       vendasCentavos: l.vendas,
       gorjetaCentavos: l.gorjeta,
       taxaCentavos: l.taxa,
+      semTaxa: l.sem_taxa,
+      descontoCentavos: l.desconto,
       chamadosAtendidos: l.chamados,
       cancelamentos: l.cancelamentos,
     }))
@@ -524,13 +553,38 @@ export const resumoNoite = async (
         g.vendasCentavos ||
         g.gorjetaCentavos ||
         g.taxaCentavos ||
+        g.semTaxa ||
+        g.descontoCentavos ||
         g.chamadosAtendidos ||
         g.cancelamentos,
     );
 
+  // Taxa não cobrada por motivo (com as observações de "Outro").
+  const semTaxa = (
+    await db().execute<{
+      motivo: string;
+      quantidade: number;
+      observacoes: string[] | null;
+    }>(sql`
+      select sem_taxa_motivo as motivo, count(*)::int as quantidade,
+             array_remove(array_agg(sem_taxa_observacao), null) as observacoes
+        from comanda
+       where restaurante_id = ${restauranteId} and fechada_em >= ${desde}
+         and sem_taxa_motivo is not null
+       group by sem_taxa_motivo
+       order by quantidade desc
+    `)
+  ).rows.map((r) => ({
+    motivo: r.motivo as MotivoSemTaxa,
+    quantidade: r.quantidade,
+    observacoes: r.observacoes ?? [],
+  }));
+
   return {
     desde: desde.toISOString(),
     garcons,
+    semTaxa,
+    totalDescontoCentavos: garcons.reduce((s, g) => s + g.descontoCentavos, 0),
     totalVendasCentavos: garcons.reduce((s, g) => s + g.vendasCentavos, 0),
     totalGorjetaCentavos: garcons.reduce((s, g) => s + g.gorjetaCentavos, 0),
     totalTaxaCentavos: garcons.reduce((s, g) => s + g.taxaCentavos, 0),

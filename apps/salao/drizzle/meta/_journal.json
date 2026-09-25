@@ -36,6 +36,20 @@
       "when": 1790335604990,
       "tag": "0004_taxa_servico",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790349354333,
+      "tag": "0005_fase3_insumos_descontos_taxa",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790360366640,
+      "tag": "0006_caixa_pagamentos",
+      "breakpoints": true
     }
   ]
 }

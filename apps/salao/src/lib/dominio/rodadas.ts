@@ -12,6 +12,7 @@ import {
   mesasDaComanda,
   registrarGarcom,
 } from "./comum";
+import { aplicarConsumo, consumoDosItens } from "./estoque";
 
 export const lancarRodadaSchema = z.object({
   // Gerada pelo celular quando a tela de lançamento abre. Se o garçom apertar
@@ -236,7 +237,12 @@ export const lancarRodada = async (
           { produtos: esgotados },
         );
       }
-      mexeuEstoque = baixas.size > 0;
+      // Insumos (receita + adicionais): falta de qualquer um recusa a rodada.
+      const mexeuInsumos = await aplicarConsumo(
+        tx,
+        await consumoDosItens(tx, input.itens),
+      );
+      mexeuEstoque = baixas.size > 0 || mexeuInsumos;
 
       const porImpressora = new Map<string, TicketItem[]>();
 

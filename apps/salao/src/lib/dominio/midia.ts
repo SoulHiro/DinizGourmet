@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 
@@ -73,3 +73,16 @@ export const miniatura = (fotoUrl: string | null) =>
   fotoUrl?.startsWith("/midia/") && fotoUrl.endsWith(".webp")
     ? fotoUrl.replace(/\.webp$/, "-p.webp")
     : fotoUrl;
+
+// Apaga um arquivo de /midia (e a miniatura, se for foto). Só mexe dentro
+// da pasta de mídia e ignora arquivo que já não existe.
+export const apagarMidia = async (url: string) => {
+  if (!url.startsWith("/midia/")) return;
+  const nome = path.basename(url);
+  const arquivos = nome.endsWith(".webp")
+    ? [nome, nome.replace(/\.webp$/, "-p.webp")]
+    : [nome];
+  await Promise.all(
+    arquivos.map((a) => rm(path.join(pastaMidia(), a), { force: true })),
+  );
+};

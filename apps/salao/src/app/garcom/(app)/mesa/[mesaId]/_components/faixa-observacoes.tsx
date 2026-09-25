@@ -120,9 +120,10 @@ export const FaixaObservacoes = ({
                   key={chip.id}
                   type="button"
                   aria-pressed={linhaSelecionada ? ligado : undefined}
+                  disabled={chip.esgotado && !ligado}
                   onClick={() => tocarChip(chip)}
                   className={cn(
-                    "h-11 shrink-0 rounded-full border-2 px-3 font-semibold text-sm active:scale-[0.96]",
+                    "h-11 shrink-0 rounded-full border-2 px-3 font-semibold text-sm active:scale-[0.96] disabled:opacity-40",
                     ligado
                       ? "border-marca bg-marca text-marca-foreground"
                       : chip.tipo === "preparo"
@@ -131,8 +132,10 @@ export const FaixaObservacoes = ({
                   )}
                 >
                   {chip.nome}
-                  {chip.precoCentavos > 0 &&
-                    ` +${formatBRL(chip.precoCentavos)}`}
+                  {chip.esgotado
+                    ? " · acabou"
+                    : chip.precoCentavos > 0 &&
+                      ` +${formatBRL(chip.precoCentavos)}`}
                 </button>
               );
             })}

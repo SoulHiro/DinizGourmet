@@ -1,6 +1,7 @@
 // Dados iniciais para desenvolvimento e primeira instalação.
 // O cardápio aqui é PROVISÓRIO: o real é cadastrado pelo /gerente.
 import path from "node:path";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 
@@ -61,6 +62,13 @@ export const semear = async (connectionString: string) => {
             nome: "Bar",
             nomeDriver: "ELGIN i9 Bar",
             setor: "bar",
+          },
+          // Conta do cliente (conferência e comprovante).
+          {
+            restauranteId,
+            nome: "Caixa",
+            nomeDriver: "ELGIN i9 Caixa",
+            setor: "caixa",
           },
         ])
         .returning();
@@ -227,6 +235,52 @@ export const semear = async (connectionString: string) => {
         ),
       );
 
+      // Insumos de exemplo, sem contagem (estoque nulo = não controlado): o
+      // gerente informa a contagem da noite em /gerente > Estoque.
+      const insumosCriados = await tx
+        .insert(schema.insumos)
+        .values(
+          ["Bacon", "Calabresa", "Frango desfiado", "Ovo"].map((nome) => ({
+            restauranteId,
+            nome,
+            unidade: "porção",
+          })),
+        )
+        .returning();
+      const insumo = (nome: string) =>
+        insumosCriados.find((i) => i.nome === nome)?.id as string;
+      const lanche = (prefixo: string) =>
+        lanchesCriados.find((p) => p.nome.startsWith(prefixo))?.id as string;
+      await tx.insert(schema.produtoInsumos).values([
+        { produtoId: lanche("Xis Bah Tchê"), insumoId: insumo("Bacon") },
+        { produtoId: lanche("Xis Bagual"), insumoId: insumo("Bacon") },
+        { produtoId: lanche("Xis Gaudério"), insumoId: insumo("Calabresa") },
+        { produtoId: lanche("Xis Bagual"), insumoId: insumo("Calabresa") },
+        {
+          produtoId: lanche("Xis Tri Bom"),
+          insumoId: insumo("Frango desfiado"),
+        },
+        {
+          produtoId: lanche("Xis Bagual"),
+          insumoId: insumo("Frango desfiado"),
+        },
+        ...lanchesCriados.map((p) => ({
+          produtoId: p.id,
+          insumoId: insumo("Ovo"),
+        })),
+      ]);
+      for (const [chip, nome] of [
+        ["Bacon extra", "Bacon"],
+        ["Ovo extra", "Ovo"],
+      ]) {
+        const alvo = chips.find((c) => c.nome === chip);
+        if (alvo)
+          await tx
+            .update(schema.modificadores)
+            .set({ insumoId: insumo(nome) })
+            .where(eq(schema.modificadores.id, alvo.id));
+      }
+
       await tx.insert(mesas).values(
         Array.from({ length: 20 }, (_, i) => ({
           restauranteId,
@@ -253,11 +307,17 @@ export const semear = async (connectionString: string) => {
           papel: "garcom" as const,
           pinHash: await hashPin("2222"),
         },
+        {
+          restauranteId,
+          nome: "Caixa",
+          papel: "caixa" as const,
+          pinHash: await hashPin("3333"),
+        },
       ]);
 
       if (env().NODE_ENV !== "test") {
         console.log(
-          "Seed aplicado. PINs de teste: Gerente 1234, Garçom A 1111, Garçom B 2222.",
+          "Seed aplicado. PINs de teste: Gerente 1234, Garçom A 1111, Garçom B 2222, Caixa 3333.",
         );
       }
       return restaurante;

@@ -4,13 +4,20 @@ import {
   ThermalPrinter,
 } from "node-thermal-printer";
 
-import type { SetorImpressora, TicketItem, TicketPayload } from "@/db/schema";
+import type {
+  ContaImpressa,
+  SetorImpressora,
+  TicketItem,
+  TicketPayload,
+} from "@/db/schema";
+import { type MetodoPagamento, ROTULO_METODO } from "@/lib/dominio/pagamento";
 
 export type TipoTicket =
   | "pedido"
   | "cancelamento"
   | "reimpressao"
-  | "alteracao";
+  | "alteracao"
+  | "conta";
 
 type Linha =
   | {
@@ -19,6 +26,13 @@ type Linha =
       negrito?: boolean;
       grande?: boolean;
       centro?: boolean;
+    }
+  // Descrição à esquerda e valor à direita (conta do cliente).
+  | {
+      tipo: "colunas";
+      esquerda: string;
+      direita: string;
+      negrito?: boolean;
     }
   | { tipo: "separador" }
   | { tipo: "espaco" };
@@ -44,6 +58,9 @@ export const montarLinhas = (
   setor: SetorImpressora,
   payload: TicketPayload,
 ): Linha[] => {
+  if (tipo === "conta" && payload.conta) {
+    return linhasDaConta(payload.mesas, payload.conta);
+  }
   const [mesaPrincipal, ...agrupadas] = payload.mesas;
   const linhas: Linha[] = [];
 
@@ -140,11 +157,162 @@ export const montarLinhas = (
   return linhas;
 };
 
+// Valor em reais só com ASCII (o Intl usa espaço não separável).
+const reais = (centavos: number) =>
+  `R$ ${(centavos / 100)
+    .toFixed(2)
+    .replace(".", ",")
+    .replace(/\B(?=(\d{3})+(?!\d))/g, ".")}`;
+
+const dataHora = (iso: string) =>
+  new Date(iso).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "America/Sao_Paulo",
+  });
+
+// Conta do cliente: pré-conta (mesa aberta, taxa sugerida e opcional) ou
+// comprovante (paga, com os pagamentos e o troco). Não é documento fiscal.
+const linhasDaConta = (mesas: number[], conta: ContaImpressa): Linha[] => {
+  const [principal, ...agrupadas] = mesas;
+  const valor = (
+    esquerda: string,
+    centavos: number,
+    negrito = false,
+  ): Linha => ({
+    tipo: "colunas",
+    esquerda,
+    direita: reais(centavos),
+    negrito,
+  });
+  const linhas: Linha[] = [
+    {
+      tipo: "texto",
+      texto: conta.restaurante.toUpperCase(),
+      negrito: true,
+      centro: true,
+    },
+    {
+      tipo: "texto",
+      texto: conta.paga ? "COMPROVANTE DE PAGAMENTO" : "CONFERENCIA DE CONTA",
+      centro: true,
+    },
+    {
+      tipo: "texto",
+      texto: `MESA ${principal}${agrupadas.length ? ` (+${agrupadas.join(", ")})` : ""}`,
+      negrito: true,
+      grande: true,
+    },
+    { tipo: "texto", texto: `Aberta: ${dataHora(conta.abertaEm)}` },
+  ];
+  if (conta.fechadaEm) {
+    linhas.push({
+      tipo: "texto",
+      texto: `Paga:   ${dataHora(conta.fechadaEm)}`,
+    });
+  }
+  if (conta.garcons.length) {
+    linhas.push({
+      tipo: "texto",
+      texto: `Atendimento: ${conta.garcons.join(", ")}`,
+    });
+  }
+  linhas.push({ tipo: "separador" });
+
+  for (const item of conta.itens) {
+    linhas.push(valor(`${item.quantidade}x ${item.nome}`, item.totalCentavos));
+    if (agrupadas.length && item.mesaOrigem !== principal) {
+      linhas.push({ tipo: "texto", texto: `   (mesa ${item.mesaOrigem})` });
+    }
+  }
+  linhas.push({ tipo: "separador" }, valor("Consumo", conta.subtotalCentavos));
+  if (conta.descontoCentavos > 0) {
+    linhas.push({
+      tipo: "colunas",
+      esquerda: `Desconto${conta.descontoNome ? ` (${conta.descontoNome})` : ""}`,
+      direita: `-${reais(conta.descontoCentavos)}`,
+    });
+  }
+
+  const semTaxa = conta.subtotalCentavos - conta.descontoCentavos;
+  if (!conta.paga) {
+    linhas.push(
+      valor(`Taxa de servico ${conta.taxaPct}% (opcional)`, conta.taxaCentavos),
+      { tipo: "espaco" },
+      valor("TOTAL COM TAXA", semTaxa + conta.taxaCentavos, true),
+      valor("Total sem taxa", semTaxa),
+    );
+  } else {
+    if (conta.taxaCentavos > 0) {
+      linhas.push(
+        valor(`Taxa de servico ${conta.taxaPct}%`, conta.taxaCentavos),
+      );
+    }
+    if (conta.gorjetaCentavos > 0) {
+      linhas.push(valor("Gorjeta", conta.gorjetaCentavos));
+    }
+    linhas.push({ tipo: "espaco" }, valor("TOTAL", conta.totalCentavos, true));
+  }
+
+  if (conta.porMesa.length > 1) {
+    linhas.push(
+      { tipo: "espaco" },
+      { tipo: "texto", texto: "Consumo por mesa:" },
+    );
+    for (const m of conta.porMesa) {
+      linhas.push(valor(`  Mesa ${m.numero}`, m.totalCentavos));
+    }
+  }
+
+  if (conta.paga && conta.pagamentos.length) {
+    linhas.push(
+      { tipo: "separador" },
+      { tipo: "texto", texto: "PAGAMENTO", negrito: true },
+    );
+    for (const p of conta.pagamentos) {
+      linhas.push(
+        valor(
+          ROTULO_METODO[p.metodo as MetodoPagamento] ?? p.metodo,
+          p.valorCentavos,
+        ),
+      );
+      if (p.metodo === "dinheiro" && p.recebidoCentavos) {
+        linhas.push(valor("  Recebido", p.recebidoCentavos));
+        linhas.push(valor("  Troco", p.trocoCentavos));
+      }
+    }
+  }
+
+  linhas.push(
+    { tipo: "separador" },
+    { tipo: "texto", texto: "Nao e documento fiscal", centro: true },
+    { tipo: "texto", texto: "Obrigado pela preferencia!", centro: true },
+  );
+  return linhas;
+};
+
+// Encaixa descrição + valor na largura, cortando a descrição se precisar.
+const colunas = (esquerda: string, direita: string, largura: number) => {
+  const espaco = largura - direita.length - 1;
+  const texto =
+    esquerda.length > espaco ? `${esquerda.slice(0, espaco - 1)}.` : esquerda;
+  return (
+    texto +
+    " ".repeat(Math.max(1, largura - texto.length - direita.length)) +
+    direita
+  );
+};
+
 export const renderizarTexto = (linhas: Linha[], largura: number) =>
   linhas
     .map((linha) => {
       if (linha.tipo === "separador") return "-".repeat(largura);
       if (linha.tipo === "espaco") return "";
+      if (linha.tipo === "colunas")
+        return colunas(linha.esquerda, linha.direita, largura);
       if (!linha.centro) return linha.texto;
       const margem = Math.max(
         0,
@@ -176,6 +344,12 @@ export const renderizarEscPos = (
     }
     if (linha.tipo === "espaco") {
       printer.newLine();
+      continue;
+    }
+    if (linha.tipo === "colunas") {
+      printer.bold(Boolean(linha.negrito));
+      printer.println(colunas(linha.esquerda, linha.direita, largura));
+      printer.bold(false);
       continue;
     }
     if (linha.centro) printer.alignCenter();

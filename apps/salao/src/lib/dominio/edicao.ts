@@ -7,6 +7,7 @@ import type { Sessao } from "@/lib/auth/sessao";
 import { conflito, invalido, naoEncontrado } from "@/lib/erros";
 import { acordarImpressao, type Escopo, notificar } from "@/lib/runtime";
 import { mesasDaComanda } from "./comum";
+import { aplicarConsumo, consumoDosItens, diferencaDeConsumo } from "./estoque";
 import { aindaNaoImpresso, trabalhoDoItem } from "./trabalho-do-item";
 
 export const editarItemSchema = z.object({
@@ -149,6 +150,27 @@ export const editarItem = async (
         .where(eq(schema.produtos.id, item.produtoId));
       mexeuEstoque = true;
     }
+
+    // Insumos: só a diferença entre o item antigo e o novo (quantidade e
+    // adicionais podem ter mudado).
+    const [antes, depois] = await Promise.all([
+      consumoDosItens(tx, [
+        {
+          produtoId: item.produtoId,
+          quantidade: item.quantidade,
+          modificadorIds: modsAtuais.flatMap((m) => (m.id ? [m.id] : [])),
+        },
+      ]),
+      consumoDosItens(tx, [
+        {
+          produtoId: item.produtoId,
+          quantidade: input.quantidade,
+          modificadorIds: novosIds,
+        },
+      ]),
+    ]);
+    if (await aplicarConsumo(tx, diferencaDeConsumo(depois, antes)))
+      mexeuEstoque = true;
 
     await tx
       .update(schema.itensPedido)

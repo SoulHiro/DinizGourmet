@@ -81,6 +81,10 @@ const SECOES: { titulo: string; conteudo: React.ReactNode }[] = [
           <strong>nome</strong> do item na lista.
         </li>
         <li>
+          Item ou adicional <strong>cinza</strong> ("acabou") não dá para
+          lançar: o ingrediente acabou nesta noite.
+        </li>
+        <li>
           <strong>Lançar pedido</strong> (dentro da revisão): sai sozinho na
           chapa, na fritura e no bar. Não precisa fazer mais nada.
         </li>
@@ -116,11 +120,12 @@ const SECOES: { titulo: string; conteudo: React.ReactNode }[] = [
     conteudo: (
       <p>
         O cliente lê o QR da mesa e toca em <strong>Chamar garçom</strong> ou{" "}
-        <strong>Pedir a conta</strong>. O alerta aparece para todos, na ordem de
-        chegada (as suas mesas vêm marcadas). Toque em <strong>Atender</strong>:
-        o chamado some da tela dos colegas e o cliente vê "Garçom a caminho". Ao
-        terminar, toque em <strong>Feito</strong>. Se ninguém atender em cerca
-        de <strong>3 minutos</strong>, o alerta pisca em vermelho e o{" "}
+        <strong>Pedir a conta</strong>. "Chamar garçom" aparece para todos, na
+        ordem de chegada (as suas mesas vêm marcadas); "Pedir a conta" vai só
+        para quem atendeu a mesa, já com o valor, a taxa e a gorjeta que o
+        cliente escolheu. Toque em <strong>Atender</strong>: o chamado some da
+        tela dos colegas (na conta, abre direto o pagamento). Se ninguém atender
+        em cerca de <strong>3 minutos</strong>, o alerta pisca em vermelho e o{" "}
         <strong>gerente</strong> é acionado.
       </p>
     ),
@@ -144,10 +149,16 @@ const SECOES: { titulo: string; conteudo: React.ReactNode }[] = [
     conteudo: (
       <p>
         Menu <strong>⋮ → Transferir</strong> leva a comanda inteira para outra
-        mesa livre. <strong>Fechar mesa</strong> só depois do pagamento na
-        maquininha: mostra o total, pede a <strong>gorjeta recebida</strong>{" "}
-        (atalho de 10%) e libera as mesas. A gorjeta é dividida entre os garçons
-        da mesa na proporção do que cada um lançou.
+        mesa livre. <strong>Receber pagamento e fechar</strong> mostra quanto
+        cobrar na maquininha. Cliente não quis a taxa de serviço? Desligue e
+        toque no <strong>motivo</strong> (obrigatório). Desconto: só os da lista
+        (valor livre é com o gerente ou o caixa). Informe a{" "}
+        <strong>gorjeta</strong>, toque na <strong>forma de pagamento</strong>{" "}
+        (mais de uma para dividir; no dinheiro, informe quanto o cliente deu e
+        aparece o troco) e em <strong>Conta paga</strong>: as mesas ficam
+        livres, e taxa e gorjeta são divididas entre os garçons da mesa na
+        proporção do que cada um lançou. O cliente quer conferir antes? Menu{" "}
+        <strong>⋮ → Imprimir conta</strong> (sai no caixa).
       </p>
     ),
   },

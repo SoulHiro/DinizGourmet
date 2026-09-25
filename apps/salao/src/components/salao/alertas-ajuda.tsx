@@ -153,6 +153,8 @@ export const AlertasAjuda = () => {
   const visiveis = fila.slice(0, MAX_VISIVEIS);
   const restantes = fila.length - visiveis.length;
 
+  // O caixa acompanha as contas pelo próprio painel; alertas são dos garçons.
+  if (eu.papel === "caixa") return null;
   if (
     fila.length === 0 &&
     minhasAjudas.length === 0 &&

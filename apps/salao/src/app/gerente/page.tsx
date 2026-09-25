@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutGrid } from "lucide-react";
+import { LayoutGrid, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 
@@ -13,11 +13,14 @@ import {
   GerenciaMesas,
 } from "./_components/cadastros";
 import { GerenciaCardapio } from "./_components/cardapio";
+import { GerenciaDescontos, GerenciaEstoque } from "./_components/estoque";
 import { ResumoNoite } from "./_components/noite";
 
 const ABAS = [
   { valor: "noite", rotulo: "Noite" },
+  { valor: "estoque", rotulo: "Estoque" },
   { valor: "cardapio", rotulo: "Cardápio" },
+  { valor: "descontos", rotulo: "Descontos" },
   { valor: "mesas", rotulo: "Mesas" },
   { valor: "equipe", rotulo: "Equipe" },
   { valor: "impressoras", rotulo: "Impressoras" },
@@ -35,13 +38,22 @@ export default function GerentePage() {
         titulo="Gerência"
         subtitulo={funcionario.nome}
         acoes={
-          <Link
-            href="/garcom"
-            aria-label="Ir para o mapa de mesas"
-            className="flex size-12 items-center justify-center"
-          >
-            <LayoutGrid />
-          </Link>
+          <>
+            <Link
+              href="/caixa"
+              aria-label="Abrir o caixa"
+              className="flex size-12 items-center justify-center"
+            >
+              <Wallet />
+            </Link>
+            <Link
+              href="/garcom"
+              aria-label="Ir para o mapa de mesas"
+              className="flex size-12 items-center justify-center"
+            >
+              <LayoutGrid />
+            </Link>
+          </>
         }
       />
       <nav className="flex overflow-x-auto border-borda border-b bg-surface">
@@ -63,7 +75,9 @@ export default function GerentePage() {
       </nav>
       <main className="mx-auto max-w-3xl p-3">
         {aba === "noite" && <ResumoNoite />}
+        {aba === "estoque" && <GerenciaEstoque />}
         {aba === "cardapio" && <GerenciaCardapio />}
+        {aba === "descontos" && <GerenciaDescontos />}
         {aba === "mesas" && <GerenciaMesas />}
         {aba === "equipe" && <GerenciaEquipe />}
         {aba === "impressoras" && <GerenciaImpressoras />}

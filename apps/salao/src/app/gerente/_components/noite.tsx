@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/cliente";
 import type { ResumoGarcom } from "@/lib/dominio/gerencia";
+import { type MotivoSemTaxa, ROTULO_MOTIVO_SEM_TAXA } from "@/lib/dominio/taxa";
 import { formatBRL } from "@/lib/utils";
 
 type Resumo = {
@@ -16,6 +17,12 @@ type Resumo = {
   totalVendasCentavos: number;
   totalGorjetaCentavos: number;
   totalTaxaCentavos: number;
+  totalDescontoCentavos: number;
+  semTaxa: {
+    motivo: MotivoSemTaxa;
+    quantidade: number;
+    observacoes: string[];
+  }[];
 };
 
 type ConfigTaxa = { pct: number; pctReduzida: number; limiteCentavos: number };
@@ -180,6 +187,20 @@ export const ResumoNoite = () => {
                 <dd className="text-right font-semibold">
                   {formatBRL(g.taxaCentavos)}
                 </dd>
+                {g.semTaxa > 0 && (
+                  <>
+                    <dt className="text-texto-secundario">Contas sem taxa</dt>
+                    <dd className="text-right">{g.semTaxa}</dd>
+                  </>
+                )}
+                {g.descontoCentavos > 0 && (
+                  <>
+                    <dt className="text-texto-secundario">Descontos dados</dt>
+                    <dd className="text-right">
+                      {formatBRL(g.descontoCentavos)}
+                    </dd>
+                  </>
+                )}
                 <dt className="text-texto-secundario">Chamados atendidos</dt>
                 <dd className="text-right">{g.chamadosAtendidos}</dd>
                 <dt className="text-texto-secundario">Itens cancelados</dt>
@@ -188,6 +209,37 @@ export const ResumoNoite = () => {
             </li>
           ))}
         </ul>
+      )}
+
+      {(data.semTaxa.length > 0 || data.totalDescontoCentavos > 0) && (
+        <div className="rounded-xl border border-borda bg-surface p-3">
+          <p className="font-bold">Taxa não cobrada e descontos</p>
+          {data.totalDescontoCentavos > 0 && (
+            <p className="mt-1 text-sm">
+              Descontos na noite:{" "}
+              <strong>{formatBRL(data.totalDescontoCentavos)}</strong>
+            </p>
+          )}
+          {data.semTaxa.length > 0 && (
+            <ul className="mt-2 flex flex-col gap-1 text-sm">
+              {data.semTaxa.map((m) => (
+                <li key={m.motivo}>
+                  <div className="flex justify-between">
+                    <span>{ROTULO_MOTIVO_SEM_TAXA[m.motivo]}</span>
+                    <strong>
+                      {m.quantidade} {m.quantidade === 1 ? "conta" : "contas"}
+                    </strong>
+                  </div>
+                  {m.observacoes.length > 0 && (
+                    <p className="text-texto-secundario">
+                      {m.observacoes.join(" · ")}
+                    </p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
 
       <TaxaServico />

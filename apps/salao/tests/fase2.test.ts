@@ -306,6 +306,14 @@ describe("taxa de serviço e pagamento", () => {
     expect(detalhe.comanda?.taxa).toEqual({ pct: 10, valorCentavos: 1397 });
 
     // No fim pagou a taxa: o garçom corrige ao receber.
+    const taxaDoB = async () => {
+      const r = await resumoNoite(garcomA.funcionario.restauranteId);
+      return {
+        total: r.totalTaxaCentavos,
+        b: r.garcons.find((g) => g.nome === "Garçom B")?.taxaCentavos ?? 0,
+      };
+    };
+    const antes = await taxaDoB();
     const pago = await fecharComanda(garcomA, m10.id, {
       taxaServico: true,
       gorjetaCentavos: 1000,
@@ -321,11 +329,10 @@ describe("taxa de serviço e pagamento", () => {
     expect(valor(pago.divisao, garcomA)).toBe(714);
     expect(valor(pago.divisao, garcomB)).toBe(286);
 
-    const noite = await resumoNoite(garcomA.funcionario.restauranteId);
-    expect(noite.totalTaxaCentavos).toBe(1397);
-    expect(noite.garcons.find((g) => g.nome === "Garçom B")?.taxaCentavos).toBe(
-      399,
-    );
+    // Outras mesas deste arquivo também cobraram taxa: compara a diferença.
+    const depois = await taxaDoB();
+    expect(depois.total - antes.total).toBe(1397);
+    expect(depois.b - antes.b).toBe(399);
   });
 
   it("acima do limite a taxa cai para 5%; sem taxa, nada é repassado", async () => {

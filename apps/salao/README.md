@@ -64,6 +64,34 @@ Decisões que o código assume:
   divididas separadamente pelo valor que cada garçom lançou (maiores restos:
   fecha no centavo) em `gorjeta_divisao` (coluna `tipo`), e aparecem
   separadas no resumo da noite.
+- **Estoque por insumo (Fase 3)**: `insumo` guarda a contagem da noite
+  (nula = não controla), `produto_insumo` a receita (insumo **base**) e
+  `modificador.insumo_id` o insumo de um **adicional**. Lançar, editar e
+  cancelar (antes do preparo) baixam/devolvem pela mesma regra atômica do
+  estoque por produto (`src/lib/dominio/estoque.ts`). Base acabou: lanche
+  esgotado (garçom e QR); adicional acabou: só o chip fica cinza. Contagem e
+  receitas em `/gerente > Estoque`.
+- **Desconto e taxa não cobrada (Fase 3)**: ao receber, o garçom aplica só
+  descontos cadastrados (`/gerente > Descontos`); valor livre é de gerente e
+  caixa. A taxa incide sobre o consumo já com desconto. Sem taxa, o motivo é
+  obrigatório (lista de 1 toque; "Outro" pede texto) e já vem marcado como
+  "Cliente recusou" quando ele recusou pelo QR. `/gerente > Noite` mostra
+  contas sem taxa por motivo e por garçom, e os descontos.
+- **Caixa** (`/caixa`, papéis caixa e gerente; o login do caixa já cai
+  lá): salão inteiro com consumo e tempo de cada mesa, fila de "pediram a
+  conta", busca pelo número da mesa + Enter, conta detalhada, **Imprimir
+  conta** (conferência, com a taxa como opcional) e **Receber pagamento**
+  (o mesmo formulário do garçom: `src/components/salao/recebimento.tsx`).
+  O pagamento fica em `pagamento` e pode ser dividido entre dinheiro,
+  crédito, débito, Pix e vale-refeição; a soma tem que bater com o total. No
+  dinheiro, o recebido a mais vira troco (`src/lib/dominio/pagamento.ts`,
+  regras puras usadas na tela e no servidor). A conta e o comprovante saem
+  na impressora do setor **Caixa** (tipo de trabalho `conta`, "não é
+  documento fiscal"). **Histórico**: qualquer dia, faixa de horário e mesa,
+  com tudo o que aconteceu na conta (pedidos, cancelamentos com quem e por
+  quê, pagamentos, divisão) e reimpressão do comprovante. **Resumo do
+  caixa**: turno das 12h às 12h, total por forma de pagamento, dinheiro na
+  gaveta, ticket médio.
 - **Impressão assíncrona:** o garçom recebe sucesso na hora. A fila
   (`trabalho_impressao`) usa `FOR UPDATE SKIP LOCKED`, com retry 2s/8s/30s,
   depois `falhou` e reenvio automático quando a impressora volta. Com a
@@ -89,7 +117,7 @@ celular (mesma rede Wi-Fi). Os IPs da própria máquina já são liberados no
 `allowedDevOrigins` do Next; outros hosts vão em `ALLOWED_DEV_ORIGINS`. Sem essa
 liberação, o Next bloqueia o WebSocket de HMR e a página nunca hidrata (fica
 carregando para sempre). PINs do seed: Gerente `1234`, Garçom A `1111`,
-Garçom B `2222`.
+Garçom B `2222`, Caixa `3333`.
 O cardápio do seed é provisório; o real é cadastrado em `/gerente`.
 
 Sem impressora, `IMPRESSAO_DRIVER=arquivo` grava cada ticket em `.tickets/`
@@ -145,8 +173,8 @@ instalada uma vez em cada celular de garçom.
 - **Juntar mesas** só aceita mesas livres ou abertas sem pedido. Para juntar
   duas comandas que já têm pedidos, feche ou transfira uma antes.
 - **Receber pagamento** registra o pagamento feito na maquininha; não há
-  integração com a maquininha nem caixa. Dividir a conta entre pessoas e
-  desconto ficam para as próximas fases.
+  integração com a maquininha nem tela de caixa. Dividir a conta entre
+  pessoas fica para as próximas fases.
 - O cardápio do cliente é **só visualização**: pedir pelo celular não existe.
 - **Carga medida** (máquina de dev, Postgres embutido, 120 conexões sem pausa):
   zero erros; ~136 req/s no mapa de mesas, p99 de 4s no cenário misto com 30%

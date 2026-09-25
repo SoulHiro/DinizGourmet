@@ -88,16 +88,20 @@ export const DrawerItem = ({
                     key={m.id}
                     type="button"
                     aria-pressed={ativo}
+                    disabled={m.esgotado && !ativo}
                     onClick={() => alternar(m.id)}
                     className={cn(
-                      "min-h-12 rounded-full border-2 px-4 font-semibold active:scale-[0.96]",
+                      "min-h-12 rounded-full border-2 px-4 font-semibold active:scale-[0.96] disabled:opacity-40",
                       ativo
                         ? "border-marca bg-marca text-marca-foreground"
                         : "border-borda bg-surface text-texto",
                     )}
                   >
                     {m.nome}
-                    {m.precoCentavos > 0 && ` +${formatBRL(m.precoCentavos)}`}
+                    {m.esgotado
+                      ? " · acabou"
+                      : m.precoCentavos > 0 &&
+                        ` +${formatBRL(m.precoCentavos)}`}
                   </button>
                 );
               })}

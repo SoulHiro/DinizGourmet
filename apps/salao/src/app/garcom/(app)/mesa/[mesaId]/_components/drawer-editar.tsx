@@ -125,16 +125,20 @@ export const DrawerEditar = ({
                     key={m.id}
                     type="button"
                     aria-pressed={ativo}
+                    disabled={m.esgotado && !ativo}
                     onClick={() => alternar(m.id)}
                     className={cn(
-                      "min-h-12 rounded-full border-2 px-4 font-semibold",
+                      "min-h-12 rounded-full border-2 px-4 font-semibold disabled:opacity-40",
                       ativo
                         ? "border-marca bg-marca text-marca-foreground"
                         : "border-borda bg-surface",
                     )}
                   >
                     {m.nome}
-                    {m.precoCentavos > 0 && ` +${formatBRL(m.precoCentavos)}`}
+                    {m.esgotado
+                      ? " · acabou"
+                      : m.precoCentavos > 0 &&
+                        ` +${formatBRL(m.precoCentavos)}`}
                   </button>
                 );
               })}

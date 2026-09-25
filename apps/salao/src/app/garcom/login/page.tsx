@@ -37,7 +37,13 @@ export default function LoginPage() {
           json: { funcionarioId: selecionado.id, pin: pinCompleto },
         },
       );
-      router.replace(funcionario.papel === "gerente" ? "/gerente" : "/garcom");
+      router.replace(
+        funcionario.papel === "gerente"
+          ? "/gerente"
+          : funcionario.papel === "caixa"
+            ? "/caixa"
+            : "/garcom",
+      );
     } catch (error) {
       setPin("");
       if (error instanceof ErroApi && error.codigo === "pin_incorreto") {

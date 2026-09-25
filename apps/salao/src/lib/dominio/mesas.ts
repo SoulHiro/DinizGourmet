@@ -7,9 +7,11 @@ import {
   conflito,
   invalido,
   naoEncontrado,
+  semPermissao,
   violouConstraint,
 } from "@/lib/erros";
 import { notificar } from "@/lib/runtime";
+import { formatBRL } from "@/lib/utils";
 import {
   buscarMesa,
   comandaAbertaDaMesa,
@@ -19,7 +21,8 @@ import {
   subtotalDaComanda,
 } from "./comum";
 import { dividirGorjeta } from "./gorjeta";
-import { calcularTaxa } from "./taxa";
+import { conferirPagamentos, METODOS_PAGAMENTO, trocoDe } from "./pagamento";
+import { calcularTaxa, MOTIVOS_SEM_TAXA, valorDoDesconto } from "./taxa";
 
 // Status derivado (nunca gravado): vem da comanda aberta e das rodadas.
 // "chamado" e "conta" chegam na Fase 2, com a tabela de chamados.
@@ -239,7 +242,8 @@ export const detalharMesa = async (restauranteId: string, mesaId: string) => {
 
   // Taxa de serviço calculada sobre o total e a escolha do cliente, se ele
   // já pediu a conta pelo QR (pré-preenche o "Receber pagamento").
-  const taxa = calcularTaxa(total, await configTaxa(db(), restauranteId));
+  const taxaConfig = await configTaxa(db(), restauranteId);
+  const taxa = calcularTaxa(total, taxaConfig);
   const [pedidoConta] = await db()
     .select({
       taxaServico: schema.chamados.taxaServico,
@@ -264,6 +268,7 @@ export const detalharMesa = async (restauranteId: string, mesaId: string) => {
       id: comanda.id,
       abertaEm: comanda.abertaEm.toISOString(),
       taxa,
+      taxaConfig,
       pedidoConta: pedidoConta
         ? {
             taxaServico: pedidoConta.taxaServico ?? true,
@@ -542,12 +547,44 @@ const basesGorjeta = async (conexao: Db | Tx, comandaId: string) => {
   }));
 };
 
-export const fecharMesaSchema = z.object({
-  // Cliente pagou a taxa de serviço? O valor é calculado aqui, no servidor.
-  taxaServico: z.boolean().default(false),
-  // Gorjeta recebida na maquininha (0 = sem gorjeta).
-  gorjetaCentavos: z.number().int().min(0).max(1_000_000).default(0),
-});
+export const fecharMesaSchema = z
+  .object({
+    // Cliente pagou a taxa de serviço? O valor é calculado aqui, no servidor.
+    taxaServico: z.boolean().default(true),
+    // Sem taxa: motivo obrigatório (relatório por motivo e garçom).
+    semTaxaMotivo: z.enum(MOTIVOS_SEM_TAXA).optional(),
+    semTaxaObservacao: z.string().trim().max(80).optional(),
+    // Gorjeta recebida na maquininha (0 = sem gorjeta).
+    gorjetaCentavos: z.number().int().min(0).max(1_000_000).default(0),
+    // Desconto pré-cadastrado (qualquer um) ou valor livre (gerente/caixa).
+    descontoId: z.uuid().optional(),
+    descontoCentavos: z.number().int().min(1).max(10_000_000).optional(),
+    // Como o cliente pagou (pode dividir entre métodos). A soma tem que
+    // fechar com o total; no dinheiro, o recebido a mais vira troco.
+    pagamentos: z
+      .array(
+        z.object({
+          metodo: z.enum(METODOS_PAGAMENTO),
+          valorCentavos: z.number().int().min(1).max(100_000_000),
+          recebidoCentavos: z.number().int().min(1).max(100_000_000).optional(),
+        }),
+      )
+      .max(10)
+      .optional(),
+  })
+  .refine((d) => d.taxaServico || d.semTaxaMotivo, {
+    message: "Escolha o motivo de não cobrar a taxa de serviço.",
+    path: ["semTaxaMotivo"],
+  })
+  .refine((d) => d.semTaxaMotivo !== "outro" || d.semTaxaObservacao, {
+    message: "Descreva o motivo em poucas palavras.",
+    path: ["semTaxaObservacao"],
+  })
+  .refine((d) => !(d.descontoId && d.descontoCentavos), {
+    message: "Use um desconto só.",
+  });
+
+export type FecharMesaInput = Partial<z.infer<typeof fecharMesaSchema>>;
 
 // Marca a conta como paga (maquininha) e libera a mesa: calcula a taxa de
 // serviço, divide taxa e gorjeta entre os garçons da mesa (proporcional ao que
@@ -556,10 +593,17 @@ export const fecharComanda = async (
   sessao: Sessao,
   mesaId: string,
   {
-    taxaServico = false,
+    taxaServico = true,
+    semTaxaMotivo,
+    semTaxaObservacao,
     gorjetaCentavos = 0,
-  }: { taxaServico?: boolean; gorjetaCentavos?: number } = {},
+    descontoId,
+    descontoCentavos: descontoLivre,
+    pagamentos,
+  }: FecharMesaInput = {},
 ) => {
+  if (descontoLivre && !["gerente", "caixa"].includes(sessao.funcionario.papel))
+    throw semPermissao();
   const { restauranteId } = sessao.funcionario;
   const resultado = await db().transaction(async (tx) => {
     await buscarMesa(tx, restauranteId, mesaId);
@@ -589,9 +633,41 @@ export const fecharComanda = async (
     ).map((m) => m.mesaId);
 
     const subtotalCentavos = await subtotalDaComanda(tx, comanda.id);
+
+    let desconto: { centavos: number; nome: string; id: string | null } | null =
+      null;
+    if (descontoId) {
+      const [cadastrado] = await tx
+        .select()
+        .from(schema.descontos)
+        .where(
+          and(
+            eq(schema.descontos.id, descontoId),
+            eq(schema.descontos.restauranteId, restauranteId),
+            eq(schema.descontos.ativo, true),
+          ),
+        );
+      if (!cadastrado) throw naoEncontrado("Desconto");
+      desconto = {
+        centavos: valorDoDesconto(cadastrado, subtotalCentavos),
+        nome: cadastrado.nome,
+        id: cadastrado.id,
+      };
+    } else if (descontoLivre) {
+      desconto = {
+        centavos: Math.min(descontoLivre, subtotalCentavos),
+        nome: "Desconto livre",
+        id: null,
+      };
+    }
+    const descontoCentavos = desconto?.centavos ?? 0;
+
+    // A taxa incide sobre o consumo já com desconto.
     const taxaCentavos = taxaServico
-      ? calcularTaxa(subtotalCentavos, await configTaxa(tx, restauranteId))
-          .valorCentavos
+      ? calcularTaxa(
+          subtotalCentavos - descontoCentavos,
+          await configTaxa(tx, restauranteId),
+        ).valorCentavos
       : 0;
     const bases =
       gorjetaCentavos > 0 || taxaCentavos > 0
@@ -621,6 +697,38 @@ export const fecharComanda = async (
       await tx.insert(schema.gorjetaDivisoes).values(repasses);
     }
 
+    const totalCentavos =
+      subtotalCentavos - descontoCentavos + taxaCentavos + gorjetaCentavos;
+    if (pagamentos?.length && totalCentavos > 0) {
+      const conferencia = conferirPagamentos(pagamentos, totalCentavos);
+      if (conferencia.dinheiroCurto) {
+        throw invalido("O dinheiro recebido é menor que o valor lançado.");
+      }
+      if (conferencia.faltaCentavos !== 0) {
+        throw conflito(
+          "pagamento_nao_fecha",
+          conferencia.faltaCentavos > 0
+            ? `Faltam ${formatBRL(conferencia.faltaCentavos)} para fechar a conta.`
+            : `Os pagamentos passam ${formatBRL(-conferencia.faltaCentavos)} do total.`,
+          { totalCentavos, pagoCentavos: conferencia.pagoCentavos },
+        );
+      }
+      await tx.insert(schema.pagamentos).values(
+        pagamentos.map((p) => ({
+          restauranteId,
+          comandaId: comanda.id,
+          metodo: p.metodo,
+          valorCentavos: p.valorCentavos,
+          recebidoCentavos:
+            p.metodo === "dinheiro"
+              ? (p.recebidoCentavos ?? p.valorCentavos)
+              : null,
+          trocoCentavos: trocoDe(p),
+          funcionarioId: sessao.funcionario.id,
+        })),
+      );
+    }
+
     await tx
       .update(schema.comandaMesas)
       .set({ saiuEm: new Date() })
@@ -637,6 +745,12 @@ export const fecharComanda = async (
         fechadaEm: new Date(),
         gorjetaCentavos: gorjetaCentavos > 0 ? gorjetaCentavos : null,
         taxaServicoCentavos: taxaServico ? taxaCentavos : null,
+        semTaxaMotivo: taxaServico ? null : (semTaxaMotivo ?? "outro"),
+        semTaxaObservacao: taxaServico ? null : semTaxaObservacao || null,
+        descontoCentavos: descontoCentavos > 0 ? descontoCentavos : null,
+        descontoNome: descontoCentavos > 0 ? (desconto?.nome ?? null) : null,
+        descontoId: descontoCentavos > 0 ? (desconto?.id ?? null) : null,
+        fechadaPor: sessao.funcionario.id,
       })
       .where(eq(schema.comandas.id, comanda.id));
     // Mesa liberada: chamados dela (inclusive "pediu a conta") se encerram.
@@ -654,8 +768,10 @@ export const fecharComanda = async (
     return {
       comandaId: comanda.id,
       subtotalCentavos,
+      descontoCentavos,
       taxaCentavos,
-      totalCentavos: subtotalCentavos + taxaCentavos + gorjetaCentavos,
+      totalCentavos,
+      trocoCentavos: (pagamentos ?? []).reduce((t, p) => t + trocoDe(p), 0),
       divisao,
       divisaoTaxa,
     };

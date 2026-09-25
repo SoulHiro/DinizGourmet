@@ -7,6 +7,7 @@ import type { Sessao } from "@/lib/auth/sessao";
 import { conflito, naoEncontrado } from "@/lib/erros";
 import { acordarImpressao, type Escopo, notificar } from "@/lib/runtime";
 import { mesasDaComanda } from "./comum";
+import { aplicarConsumo, consumoDosItens, diferencaDeConsumo } from "./estoque";
 import { aindaNaoImpresso, trabalhoDoItem } from "./trabalho-do-item";
 
 export const cancelarItemSchema = z.object({
@@ -94,6 +95,23 @@ export const cancelarItem = async (
         .set({ estoque: sql`${schema.produtos.estoque} + ${item.quantidade}` })
         .where(eq(schema.produtos.id, item.produtoId));
       devolveuEstoque = true;
+    }
+
+    // Insumos (receita + adicionais do item) voltam junto.
+    if (!input.preparoIniciado) {
+      const mods = await tx
+        .select({ id: schema.itemPedidoModificadores.modificadorId })
+        .from(schema.itemPedidoModificadores)
+        .where(eq(schema.itemPedidoModificadores.itemPedidoId, item.id));
+      const consumo = await consumoDosItens(tx, [
+        {
+          produtoId: item.produtoId,
+          quantidade: item.quantidade,
+          modificadorIds: mods.flatMap((m) => (m.id ? [m.id] : [])),
+        },
+      ]);
+      if (await aplicarConsumo(tx, diferencaDeConsumo(new Map(), consumo)))
+        devolveuEstoque = true;
     }
 
     if (item.impressoraId) {
