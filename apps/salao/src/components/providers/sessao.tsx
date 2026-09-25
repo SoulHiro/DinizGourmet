@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext } from "react";
-
+import { AlertasAjuda } from "@/components/salao/alertas-ajuda";
 import type { FuncionarioSessao } from "@/lib/auth/sessao";
 import { TempoRealProvider } from "./tempo-real";
 
@@ -21,6 +21,9 @@ export const AreaAutenticada = ({
   children: React.ReactNode;
 }) => (
   <SessaoContext.Provider value={funcionario}>
-    <TempoRealProvider>{children}</TempoRealProvider>
+    <TempoRealProvider>
+      {children}
+      <AlertasAjuda />
+    </TempoRealProvider>
   </SessaoContext.Provider>
 );

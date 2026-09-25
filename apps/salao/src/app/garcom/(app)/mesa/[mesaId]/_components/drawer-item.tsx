@@ -50,10 +50,18 @@ export const DrawerItem = ({
 
   if (!produto) return null;
 
+  // Ponto da carne é exclusivo: escolher um tira o outro.
+  const preparoIds = produto.modificadores
+    .filter((m) => m.tipo === "preparo")
+    .map((m) => m.id);
   const alternar = (id: string) =>
-    setSelecionados((atual) =>
-      atual.includes(id) ? atual.filter((x) => x !== id) : [...atual, id],
-    );
+    setSelecionados((atual) => {
+      if (atual.includes(id)) return atual.filter((x) => x !== id);
+      const base = preparoIds.includes(id)
+        ? atual.filter((x) => !preparoIds.includes(x))
+        : atual;
+      return [...base, id];
+    });
 
   const adicionais = produto.modificadores
     .filter((m) => selecionados.includes(m.id))

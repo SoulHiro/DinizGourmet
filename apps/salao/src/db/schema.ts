@@ -39,9 +39,11 @@ export const setorImpressoraEnum = pgEnum("setor_impressora", [
   "caixa",
 ]);
 
+// "preparo" = ponto da carne (mal passado, ao ponto...): só um por unidade.
 export const tipoModificadorEnum = pgEnum("tipo_modificador", [
   "remocao",
   "adicional",
+  "preparo",
 ]);
 
 export const statusComandaEnum = pgEnum("status_comanda", [
@@ -58,6 +60,7 @@ export const tipoTrabalhoImpressaoEnum = pgEnum("tipo_trabalho_impressao", [
   "pedido",
   "cancelamento",
   "reimpressao",
+  "alteracao",
 ]);
 
 export const statusTrabalhoImpressaoEnum = pgEnum("status_trabalho_impressao", [
@@ -149,6 +152,9 @@ export const categorias = pgTable(
     impressoraId: uuid("impressora_id").references(() => impressoras.id, {
       onDelete: "set null",
     }),
+    // Faixa de códigos dos produtos (ex.: Lanches 1–19, Porções 20–29).
+    codigoInicio: integer("codigo_inicio"),
+    codigoFim: integer("codigo_fim"),
     ativa: boolean("ativa").notNull().default(true),
     criadoEm: criadoEm(),
     atualizadoEm: atualizadoEm(),
@@ -166,6 +172,8 @@ export const produtos = pgTable(
     categoriaId: uuid("categoria_id")
       .notNull()
       .references(() => categorias.id),
+    // Número curto do cardápio: o garçom digita "5" e acha o item.
+    codigo: integer("codigo"),
     nome: text("nome").notNull(),
     descricao: text("descricao"),
     // Nome sem acento e minúsculo, para a busca rápida do garçom.
@@ -181,6 +189,7 @@ export const produtos = pgTable(
   (t) => [
     index("produto_restaurante_idx").on(t.restauranteId),
     index("produto_categoria_idx").on(t.categoriaId),
+    uniqueIndex("produto_codigo_idx").on(t.restauranteId, t.codigo),
     check("produto_estoque_nao_negativo", sql`${t.estoque} >= 0`),
   ],
 );
@@ -342,6 +351,9 @@ export const itensPedido = pgTable(
     canceladoEm: timestamp("cancelado_em", { withTimezone: true }),
     motivoCancelamento: text("motivo_cancelamento"),
     preparoIniciado: boolean("preparo_iniciado"),
+    // Edição de item já lançado: o novo aponta para o que ele substituiu
+    // (o antigo fica cancelado com motivo "Alterado"). Auditoria completa.
+    substituiItemId: uuid("substitui_item_id"),
     criadoEm: criadoEm(),
   },
   (t) => [
@@ -373,6 +385,7 @@ export const itemPedidoModificadores = pgTable(
 
 export type TicketItem = {
   itemId: string;
+  codigo?: number | null;
   quantidade: number;
   nome: string;
   modificadores: string[];
@@ -388,6 +401,8 @@ export type TicketPayload = {
   itens: TicketItem[];
   motivo?: string;
   preparoIniciado?: boolean;
+  // Ticket de ALTERAÇÃO: como o item era antes (itens = como ficou).
+  antes?: TicketItem[];
 };
 
 // Fila de impressão persistente. O worker consome com FOR UPDATE SKIP LOCKED,
@@ -427,6 +442,38 @@ export const trabalhosImpressao = pgTable(
     ),
     index("trabalho_impressao_rodada_idx").on(t.rodadaId),
     index("trabalho_impressao_status_idx").on(t.restauranteId, t.status),
+  ],
+);
+
+// Garçom sobrecarregado pede ajuda numa mesa; todos os garçons recebem o
+// alerta e o primeiro que aceitar vira auxiliar. Sem resposta em alguns
+// minutos, o pedido é escalado para o gerente.
+export const pedidosAjuda = pgTable(
+  "pedido_ajuda",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    restauranteId: uuid("restaurante_id")
+      .notNull()
+      .references(() => restaurantes.id),
+    mesaId: uuid("mesa_id")
+      .notNull()
+      .references(() => mesas.id),
+    comandaId: uuid("comanda_id").references(() => comandas.id),
+    solicitanteId: uuid("solicitante_id")
+      .notNull()
+      .references(() => funcionarios.id),
+    criadoEm: criadoEm(),
+    aceitoPor: uuid("aceito_por").references(() => funcionarios.id),
+    aceitoEm: timestamp("aceito_em", { withTimezone: true }),
+    escaladoEm: timestamp("escalado_em", { withTimezone: true }),
+    encerradoEm: timestamp("encerrado_em", { withTimezone: true }),
+  },
+  (t) => [
+    index("pedido_ajuda_restaurante_idx").on(t.restauranteId, t.encerradoEm),
+    // Um pedido em aberto por mesa: apertar de novo não duplica o alerta.
+    uniqueIndex("pedido_ajuda_mesa_aberto_idx")
+      .on(t.mesaId)
+      .where(sql`${t.encerradoEm} is null and ${t.aceitoPor} is null`),
   ],
 );
 

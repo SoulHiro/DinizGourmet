@@ -2,8 +2,11 @@ import { and, asc, eq } from "drizzle-orm";
 
 import { db, schema } from "@/db";
 
+export type TipoModificador = "remocao" | "adicional" | "preparo";
+
 export type ProdutoCardapio = {
   id: string;
+  codigo: number | null;
   nome: string;
   descricao: string | null;
   busca: string;
@@ -14,7 +17,7 @@ export type ProdutoCardapio = {
   modificadores: {
     id: string;
     nome: string;
-    tipo: "remocao" | "adicional";
+    tipo: TipoModificador;
     precoCentavos: number;
   }[];
 };
@@ -36,7 +39,11 @@ export const listarCardapio = async (
     orderBy: [asc(schema.categorias.ordem), asc(schema.categorias.nome)],
     with: {
       produtos: {
-        orderBy: [asc(schema.produtos.ordem), asc(schema.produtos.nome)],
+        orderBy: [
+          asc(schema.produtos.codigo),
+          asc(schema.produtos.ordem),
+          asc(schema.produtos.nome),
+        ],
         with: {
           modificadores: {
             orderBy: [asc(schema.produtoModificadores.ordem)],
@@ -52,6 +59,7 @@ export const listarCardapio = async (
     nome: categoria.nome,
     produtos: categoria.produtos.map((produto) => ({
       id: produto.id,
+      codigo: produto.codigo,
       nome: produto.nome,
       descricao: produto.descricao,
       busca: produto.buscaNormalizada,

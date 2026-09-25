@@ -96,7 +96,7 @@ describe("worker de impressão", () => {
     );
     expect(ticket).toContain("CHAPA");
     expect(ticket).toContain("MESA 1");
-    expect(ticket).toContain("1x XIS SALADA");
+    expect(ticket).toContain("1x 1 - XIS SALADA");
     expect(ticket).toContain("OBS: sem cebola");
   });
 

@@ -5,6 +5,7 @@ import {
   ArrowRightLeft,
   Combine,
   DoorOpen,
+  Hand,
   Loader2,
   MoreVertical,
   Split,
@@ -90,6 +91,24 @@ export const AcoesMesa = ({ detalhe }: { detalhe: DetalheMesa }) => {
           : [...atual, id],
     );
 
+  const pedirAjuda = useMutation({
+    mutationFn: () =>
+      api<{ jaExistia: boolean }>("/api/ajuda", {
+        method: "POST",
+        json: { mesaId: mesa.id },
+      }),
+    onSuccess: ({ jaExistia }) => {
+      toast.success(
+        jaExistia
+          ? "O pedido de ajuda já estava ativo."
+          : "Alerta enviado para os outros garçons.",
+      );
+      queryClient.invalidateQueries({ queryKey: ["ajuda"] });
+      fechar();
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
   const opcoes = [
     {
       modo: "juntar" as const,
@@ -139,6 +158,15 @@ export const AcoesMesa = ({ detalhe }: { detalhe: DetalheMesa }) => {
           <div className="overflow-y-auto px-4">
             {modo === "menu" && (
               <div className="flex flex-col gap-2">
+                <Button
+                  size="lg"
+                  variant="acao"
+                  className="justify-start"
+                  disabled={pedirAjuda.isPending}
+                  onClick={() => pedirAjuda.mutate()}
+                >
+                  <Hand /> Pedir ajuda a outro garçom
+                </Button>
                 {opcoes
                   .filter((o) => o.visivel)
                   .map((o) => (

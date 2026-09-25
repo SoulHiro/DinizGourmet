@@ -4,9 +4,13 @@ import {
   ThermalPrinter,
 } from "node-thermal-printer";
 
-import type { SetorImpressora, TicketPayload } from "@/db/schema";
+import type { SetorImpressora, TicketItem, TicketPayload } from "@/db/schema";
 
-export type TipoTicket = "pedido" | "cancelamento" | "reimpressao";
+export type TipoTicket =
+  | "pedido"
+  | "cancelamento"
+  | "reimpressao"
+  | "alteracao";
 
 type Linha =
   | {
@@ -51,6 +55,14 @@ export const montarLinhas = (
       grande: true,
       centro: true,
     });
+  } else if (tipo === "alteracao") {
+    linhas.push({
+      tipo: "texto",
+      texto: "*** ALTERACAO ***",
+      negrito: true,
+      grande: true,
+      centro: true,
+    });
   } else if (tipo === "reimpressao") {
     linhas.push({
       tipo: "texto",
@@ -75,12 +87,13 @@ export const montarLinhas = (
     { tipo: "separador" },
   );
 
-  for (const item of payload.itens) {
+  const linhasDoItem = (item: TicketItem, destaque: boolean) => {
+    const codigo = item.codigo ? `${item.codigo} - ` : "";
     linhas.push({
       tipo: "texto",
-      texto: `${item.quantidade}x ${item.nome.toUpperCase()}`,
-      negrito: true,
-      grande: true,
+      texto: `${item.quantidade}x ${codigo}${item.nome.toUpperCase()}`,
+      negrito: destaque,
+      grande: destaque,
     });
     for (const modificador of item.modificadores) {
       linhas.push({
@@ -100,7 +113,14 @@ export const montarLinhas = (
       linhas.push({ tipo: "texto", texto: `   (mesa ${item.mesaOrigem})` });
     }
     linhas.push({ tipo: "espaco" });
+  };
+
+  if (tipo === "alteracao" && payload.antes?.length) {
+    linhas.push({ tipo: "texto", texto: "ERA:", negrito: true });
+    for (const item of payload.antes) linhasDoItem(item, false);
+    linhas.push({ tipo: "texto", texto: "AGORA:", negrito: true });
   }
+  for (const item of payload.itens) linhasDoItem(item, true);
 
   if (tipo === "cancelamento") {
     linhas.push({ tipo: "separador" });

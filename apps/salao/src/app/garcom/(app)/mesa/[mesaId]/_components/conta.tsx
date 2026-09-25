@@ -1,7 +1,14 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Clock, Loader2 } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  Loader2,
+  Pencil,
+  X,
+} from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -18,6 +25,7 @@ import { MOTIVOS_CANCELAMENTO } from "@/lib/dominio/constantes";
 import type { DetalheMesa } from "@/lib/dominio/mesas";
 import { formatarHora } from "@/lib/tempo";
 import { cn, formatBRL } from "@/lib/utils";
+import { DrawerEditar, type ItemEditavel } from "./drawer-editar";
 
 type Comanda = NonNullable<DetalheMesa["comanda"]>;
 type Item = Comanda["rodadas"][number]["itens"][number];
@@ -184,6 +192,7 @@ const DrawerCancelar = ({
 // Histórico da comanda: rodadas imutáveis, só dá para cancelar item a item.
 export const Conta = ({ comanda }: { comanda: Comanda }) => {
   const [cancelando, setCancelando] = useState<Item | null>(null);
+  const [editando, setEditando] = useState<ItemEditavel | null>(null);
   const agrupada = comanda.mesas.length > 1;
 
   return (
@@ -243,6 +252,11 @@ export const Conta = ({ comanda }: { comanda: Comanda }) => {
                   >
                     <p className="font-semibold">
                       {item.quantidade}x {item.nome}
+                      {item.editado && !cancelado && (
+                        <span className="ml-2 rounded-full bg-borda px-2 py-0.5 font-normal text-texto-secundario text-xs">
+                          editado
+                        </span>
+                      )}
                     </p>
                     {(item.modificadores.length > 0 ||
                       item.observacao ||
@@ -265,21 +279,32 @@ export const Conta = ({ comanda }: { comanda: Comanda }) => {
                   </div>
                   <span
                     className={cn(
-                      "text-sm",
+                      "shrink-0 text-sm",
                       cancelado && "line-through opacity-60",
                     )}
                   >
                     {formatBRL(item.totalCentavos)}
                   </span>
                   {!cancelado && (
-                    <Button
-                      size="md"
-                      variant="ghost"
-                      className="text-destructive"
-                      onClick={() => setCancelando(item)}
-                    >
-                      Cancelar
-                    </Button>
+                    <div className="flex shrink-0">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        aria-label={`Editar ${item.nome}`}
+                        onClick={() => setEditando(item)}
+                      >
+                        <Pencil />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="text-destructive"
+                        aria-label={`Cancelar ${item.nome}`}
+                        onClick={() => setCancelando(item)}
+                      >
+                        <X />
+                      </Button>
+                    </div>
                   )}
                 </li>
               );
@@ -289,6 +314,7 @@ export const Conta = ({ comanda }: { comanda: Comanda }) => {
       ))}
 
       <DrawerCancelar item={cancelando} onFechar={() => setCancelando(null)} />
+      <DrawerEditar item={editando} onFechar={() => setEditando(null)} />
     </div>
   );
 };

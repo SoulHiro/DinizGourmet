@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { db, schema } from "@/db";
@@ -7,6 +7,7 @@ import type { Sessao } from "@/lib/auth/sessao";
 import { conflito, naoEncontrado } from "@/lib/erros";
 import { acordarImpressao, type Escopo, notificar } from "@/lib/runtime";
 import { mesasDaComanda } from "./comum";
+import { aindaNaoImpresso, trabalhoDoItem } from "./trabalho-do-item";
 
 export const cancelarItemSchema = z.object({
   motivo: z.string().trim().min(3, "Informe o motivo.").max(140),
@@ -96,26 +97,10 @@ export const cancelarItem = async (
     }
 
     if (item.impressoraId) {
-      // Trava o trabalho de impressão desta rodada nesta impressora. O worker
-      // usa SKIP LOCKED, então não imprime enquanto mexemos no payload.
-      const [trabalho] = await tx
-        .select()
-        .from(schema.trabalhosImpressao)
-        .where(
-          and(
-            eq(schema.trabalhosImpressao.rodadaId, item.rodadaId),
-            eq(schema.trabalhosImpressao.impressoraId, item.impressoraId),
-            inArray(schema.trabalhosImpressao.tipo, ["pedido", "reimpressao"]),
-          ),
-        )
-        .for("update")
-        .limit(1);
+      const trabalho = await trabalhoDoItem(tx, item);
+      const aindaNaoSaiu = aindaNaoImpresso(trabalho);
 
-      const aindaNaoSaiu =
-        trabalho &&
-        (trabalho.status === "pendente" || trabalho.status === "falhou");
-
-      if (aindaNaoSaiu) {
+      if (trabalho && aindaNaoSaiu) {
         // Ainda não imprimiu: só tira o item do ticket. Sem aviso na cozinha.
         const itens = trabalho.payload.itens.filter(
           (i) => i.itemId !== item.id,

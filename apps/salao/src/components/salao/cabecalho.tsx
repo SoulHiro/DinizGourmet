@@ -4,6 +4,7 @@ import { ChevronLeft, LogOut, Moon, Sun } from "lucide-react";
 import Link from "next/link";
 import { useTheme } from "next-themes";
 
+import { useFuncionario } from "@/components/providers/sessao";
 import { useConexao } from "@/components/providers/tempo-real";
 import { api } from "@/lib/cliente";
 import { cn } from "@/lib/utils";
@@ -21,6 +22,8 @@ export const Cabecalho = ({
   acoes?: React.ReactNode;
 }) => {
   const conexao = useConexao();
+  // Impressão é automática; só o gerente acompanha a fila e reenvia falhas.
+  const podeVerImpressao = useFuncionario().papel === "gerente";
   const { resolvedTheme, setTheme } = useTheme();
 
   const sair = async () => {
@@ -61,7 +64,7 @@ export const Cabecalho = ({
           )}
         />
         {acoes}
-        <BadgeImpressao />
+        {podeVerImpressao && <BadgeImpressao />}
         <button
           type="button"
           aria-label="Alternar tema claro/escuro"

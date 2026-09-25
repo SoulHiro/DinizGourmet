@@ -67,19 +67,37 @@ export const semear = async (connectionString: string) => {
       const [lanches, porcoes, bebidas, sobremesas] = await tx
         .insert(categorias)
         .values([
-          { restauranteId, nome: "Lanches", ordem: 1, impressoraId: chapa.id },
+          {
+            restauranteId,
+            nome: "Lanches",
+            ordem: 1,
+            impressoraId: chapa.id,
+            codigoInicio: 1,
+            codigoFim: 19,
+          },
           {
             restauranteId,
             nome: "Porções",
             ordem: 2,
             impressoraId: fritura.id,
+            codigoInicio: 20,
+            codigoFim: 29,
           },
-          { restauranteId, nome: "Bebidas", ordem: 3, impressoraId: bar.id },
+          {
+            restauranteId,
+            nome: "Bebidas",
+            ordem: 3,
+            impressoraId: bar.id,
+            codigoInicio: 30,
+            codigoFim: 79,
+          },
           {
             restauranteId,
             nome: "Sobremesas",
             ordem: 4,
             impressoraId: chapa.id,
+            codigoInicio: 80,
+            codigoFim: 99,
           },
         ])
         .returning();
@@ -121,12 +139,26 @@ export const semear = async (connectionString: string) => {
         { categoriaId: sobremesas.id, nome: "Pudim", preco: 1200 },
       ];
 
+      // Código sequencial dentro da faixa de cada categoria.
+      const inicioPorCategoria = new Map(
+        [lanches, porcoes, bebidas, sobremesas].map((c) => [
+          c.id,
+          c.codigoInicio ?? 1,
+        ]),
+      );
+      const proximoCodigo = (categoriaId: string) => {
+        const codigo = inicioPorCategoria.get(categoriaId) ?? 1;
+        inicioPorCategoria.set(categoriaId, codigo + 1);
+        return codigo;
+      };
+
       const produtosCriados = await tx
         .insert(produtos)
         .values(
           cardapio.map((item, ordem) => ({
             restauranteId,
             categoriaId: item.categoriaId,
+            codigo: proximoCodigo(item.categoriaId),
             nome: item.nome,
             buscaNormalizada: normalizarBusca(item.nome),
             precoCentavos: item.preco,
@@ -144,6 +176,10 @@ export const semear = async (connectionString: string) => {
           { restauranteId, nome: "Sem milho", tipo: "remocao" as const },
           { restauranteId, nome: "Sem salada", tipo: "remocao" as const },
           { restauranteId, nome: "Sem tomate", tipo: "remocao" as const },
+          { restauranteId, nome: "Sem ovo", tipo: "remocao" as const },
+          { restauranteId, nome: "Mal passado", tipo: "preparo" as const },
+          { restauranteId, nome: "Ao ponto", tipo: "preparo" as const },
+          { restauranteId, nome: "Bem passado", tipo: "preparo" as const },
           {
             restauranteId,
             nome: "Bacon extra",

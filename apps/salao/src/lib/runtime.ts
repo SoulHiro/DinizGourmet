@@ -2,7 +2,12 @@
 // São bundles diferentes no mesmo processo; só o globalThis é compartilhado.
 // O server.ts preenche as funções ao subir; os Route Handlers só chamam.
 
-export type Escopo = "mesas" | "cardapio" | "impressao" | `comanda:${string}`;
+export type Escopo =
+  | "mesas"
+  | "cardapio"
+  | "impressao"
+  | "ajuda"
+  | `comanda:${string}`;
 
 type Runtime = {
   emitir?: (restauranteId: string, escopos: Escopo[]) => void;

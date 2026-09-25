@@ -132,6 +132,7 @@ export const lancarRodada = async (
       const produtos = await tx
         .select({
           id: schema.produtos.id,
+          codigo: schema.produtos.codigo,
           nome: schema.produtos.nome,
           precoCentavos: schema.produtos.precoCentavos,
           disponivel: schema.produtos.disponivel,
@@ -251,6 +252,9 @@ export const lancarRodada = async (
             throw invalido(`Modificador inválido para ${produto.nome}.`);
           return mod;
         });
+        if (mods.filter((m) => m.tipo === "preparo").length > 1) {
+          throw invalido(`Escolha só um ponto da carne para ${produto.nome}.`);
+        }
         const adicionais = mods.reduce((soma, m) => soma + m.precoCentavos, 0);
 
         const [criado] = await tx
@@ -287,6 +291,7 @@ export const lancarRodada = async (
           const lista = porImpressora.get(produto.impressoraId) ?? [];
           lista.push({
             itemId: criado.id,
+            codigo: produto.codigo,
             quantidade: item.quantidade,
             nome: produto.nome,
             modificadores: mods.map((m) => m.nome),

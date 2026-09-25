@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Minus, Plus, Search, Trash2, X } from "lucide-react";
+import { ClipboardList, Loader2, Minus, Plus, Search, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -15,6 +15,7 @@ import { normalizarBusca } from "@/lib/texto";
 import { cn, formatBRL } from "@/lib/utils";
 import { useCarrinho } from "./carrinho";
 import { DrawerItem } from "./drawer-item";
+import { DrawerRevisao } from "./drawer-revisao";
 
 type MesaDaComanda = { id: string; numero: number };
 
@@ -36,7 +37,7 @@ export const NovoPedido = ({
   const [produtoAberto, setProdutoAberto] = useState<ProdutoCardapio | null>(
     null,
   );
-  const [verCarrinho, setVerCarrinho] = useState(false);
+  const [revisando, setRevisando] = useState(false);
 
   const produtosPorId = useMemo(
     () =>
@@ -48,15 +49,26 @@ export const NovoPedido = ({
 
   const categoriaAtiva = categoriaId ?? categorias?.[0]?.id ?? null;
   const termo = normalizarBusca(busca);
+  // Número digitado = código do cardápio (ex.: "5" ou "3" → 3, 30–39).
+  const buscaPorCodigo = /^\d+$/.test(termo);
+  const buscando = buscaPorCodigo || termo.length >= 2;
   const visiveis = useMemo(() => {
     if (!categorias) return [];
+    const todos = categorias.flatMap((c) => c.produtos);
+    if (buscaPorCodigo) {
+      return todos
+        .filter((p) => p.codigo !== null && String(p.codigo).startsWith(termo))
+        .sort(
+          (a, b) =>
+            Number(b.codigo === Number(termo)) -
+            Number(a.codigo === Number(termo)),
+        );
+    }
     if (termo.length >= 2) {
-      return categorias
-        .flatMap((c) => c.produtos)
-        .filter((p) => p.busca.includes(termo));
+      return todos.filter((p) => p.busca.includes(termo));
     }
     return categorias.find((c) => c.id === categoriaAtiva)?.produtos ?? [];
-  }, [categorias, categoriaAtiva, termo]);
+  }, [categorias, categoriaAtiva, termo, buscaPorCodigo]);
 
   const totalItens = carrinho.linhas.reduce((s, l) => s + l.quantidade, 0);
   const totalCentavos = carrinho.linhas.reduce((soma, linha) => {
@@ -78,6 +90,7 @@ export const NovoPedido = ({
         },
       }),
     onSuccess: (resultado) => {
+      setRevisando(false);
       carrinho.reiniciar();
       toast.success(`Mesa ${mesaNumero}: rodada ${resultado.numero} lançada`);
       queryClient.invalidateQueries({ queryKey: ["mesas"] });
@@ -98,18 +111,9 @@ export const NovoPedido = ({
     },
   });
 
-  const descricaoLinha = (
-    modificadorIds: string[],
-    produto?: ProdutoCardapio,
-  ) =>
-    produto?.modificadores
-      .filter((m) => modificadorIds.includes(m.id))
-      .map((m) => m.nome)
-      .join(", ");
-
   return (
     <>
-      <div className="sticky top-16 z-20 flex flex-col gap-2 border-borda border-b bg-base px-3 pt-3 pb-2">
+      <div className="sticky top-16 z-20 flex flex-col gap-2 border-borda border-b bg-fundo px-3 pt-3 pb-2">
         <label className="relative block">
           <Search className="-translate-y-1/2 absolute top-1/2 left-3 size-5 text-texto-secundario" />
           <input
@@ -131,8 +135,8 @@ export const NovoPedido = ({
             </button>
           )}
         </label>
-        {termo.length < 2 && (
-          <div className="-mx-3 flex gap-2 overflow-x-auto px-3 pb-1">
+        {!buscando && (
+          <div className="-mx-3 flex gap-2 overflow-x-auto px-3 pb-1 [scrollbar-width:none]">
             {categorias?.map((c) => (
               <button
                 key={c.id}
@@ -152,7 +156,7 @@ export const NovoPedido = ({
         )}
       </div>
 
-      <ul className="flex flex-col gap-2 p-3 pb-44">
+      <ul className="flex flex-col gap-2 p-3 pb-28">
         {isLoading && (
           <Loader2 className="mx-auto mt-6 size-8 animate-spin text-texto-secundario" />
         )}
@@ -168,138 +172,102 @@ export const NovoPedido = ({
             <li
               key={produto.id}
               className={cn(
-                "flex items-center gap-2 rounded-xl border bg-surface p-2 pl-3",
+                "flex flex-col rounded-xl border bg-surface",
                 noCarrinho > 0 ? "border-marca" : "border-borda",
                 produto.esgotado && "opacity-50",
               )}
             >
-              <button
-                type="button"
-                disabled={produto.esgotado}
-                onClick={() => setProdutoAberto(produto)}
-                className="min-h-12 flex-1 text-left"
-              >
-                <p className="font-semibold text-lg leading-tight">
-                  {produto.nome}
-                </p>
-                <p className="text-sm text-texto-secundario">
-                  {produto.esgotado ? (
-                    <span className="font-semibold text-destructive">
-                      Esgotado
-                    </span>
-                  ) : (
-                    <>
-                      {formatBRL(produto.precoCentavos)}
-                      {produto.estoque !== null &&
-                        produto.estoque <= 5 &&
-                        ` · restam ${produto.estoque}`}
-                      {noCarrinho > simples &&
-                        ` · ${noCarrinho - simples} personalizado(s)`}
-                    </>
-                  )}
-                </p>
-              </button>
-              {!produto.esgotado && (
-                <div className="flex items-center gap-1">
-                  {simples > 0 && (
-                    <>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        aria-label={`Tirar um ${produto.nome}`}
-                        onClick={() => carrinho.alterarSimples(produto.id, -1)}
-                      >
-                        <Minus />
-                      </Button>
-                      <span className="w-6 text-center font-bold text-xl">
-                        {simples}
+              <div className="flex items-center gap-2 p-2 pl-3">
+                <button
+                  type="button"
+                  disabled={produto.esgotado}
+                  onClick={() => setProdutoAberto(produto)}
+                  className="min-h-12 flex-1 text-left"
+                >
+                  <p className="font-semibold text-lg leading-tight">
+                    {produto.codigo !== null && (
+                      <span className="mr-1.5 font-bold text-texto-secundario tabular-nums">
+                        {produto.codigo}
                       </span>
-                    </>
-                  )}
-                  <Button
-                    size="icon"
-                    variant={simples > 0 ? "marca" : "outline"}
-                    aria-label={`Adicionar ${produto.nome}`}
-                    onClick={() => carrinho.alterarSimples(produto.id, 1)}
-                  >
-                    <Plus />
-                  </Button>
-                </div>
-              )}
+                    )}
+                    {produto.nome}
+                  </p>
+                  <p className="text-sm text-texto-secundario">
+                    {produto.esgotado ? (
+                      <span className="font-semibold text-destructive">
+                        Esgotado
+                      </span>
+                    ) : (
+                      <>
+                        {formatBRL(produto.precoCentavos)}
+                        {produto.estoque !== null &&
+                          produto.estoque <= 5 &&
+                          ` · restam ${produto.estoque}`}
+                      </>
+                    )}
+                  </p>
+                </button>
+                {!produto.esgotado && (
+                  <div className="flex items-center gap-1">
+                    {noCarrinho > 0 && (
+                      <>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          disabled={simples === 0}
+                          aria-label={`Tirar um ${produto.nome} completo`}
+                          onClick={() =>
+                            carrinho.alterarSimples(produto.id, -1)
+                          }
+                        >
+                          <Minus />
+                        </Button>
+                        <span className="w-6 text-center font-bold text-xl">
+                          {noCarrinho}
+                        </span>
+                      </>
+                    )}
+                    <Button
+                      size="icon"
+                      variant={noCarrinho > 0 ? "marca" : "outline"}
+                      aria-label={`Adicionar ${produto.nome}`}
+                      onClick={() => carrinho.alterarSimples(produto.id, 1)}
+                    >
+                      <Plus />
+                    </Button>
+                  </div>
+                )}
+              </div>
             </li>
           );
         })}
       </ul>
 
       <footer className="fixed inset-x-0 bottom-0 z-30 border-borda border-t bg-surface px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_16px_rgba(0,0,0,0.08)]">
-        {verCarrinho && carrinho.linhas.length > 0 && (
-          <ul className="mb-2 flex max-h-[40dvh] flex-col gap-1 overflow-y-auto">
-            {carrinho.linhas.map((linha) => {
-              const produto = produtosPorId.get(linha.produtoId);
-              const mods = descricaoLinha(linha.modificadorIds, produto);
-              const origem = mesas.find((m) => m.id === linha.mesaOrigemId);
-              return (
-                <li
-                  key={linha.chave}
-                  className="flex items-center gap-2 border-borda border-b py-1"
-                >
-                  <div className="flex-1">
-                    <p className="font-semibold">
-                      {linha.quantidade}x {produto?.nome ?? "Item"}
-                    </p>
-                    {(mods || linha.observacao || origem) && (
-                      <p className="text-sm text-texto-secundario">
-                        {[
-                          mods,
-                          linha.observacao && `Obs: ${linha.observacao}`,
-                          origem && `Mesa ${origem.numero}`,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </p>
-                    )}
-                  </div>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    aria-label="Remover do pedido"
-                    onClick={() => carrinho.remover(linha.chave)}
-                  >
-                    <Trash2 className="text-destructive" />
-                  </Button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-        <div className="flex gap-2">
-          <Button
-            size="lg"
-            className="px-3"
-            disabled={carrinho.linhas.length === 0}
-            onClick={() => setVerCarrinho((v) => !v)}
-            aria-expanded={verCarrinho}
-          >
-            {totalItens} {totalItens === 1 ? "item" : "itens"}
-          </Button>
-          <Button
-            variant="acao"
-            size="lg"
-            className="flex-1"
-            disabled={carrinho.linhas.length === 0 || lancar.isPending}
-            onClick={() => lancar.mutate()}
-          >
-            {lancar.isPending ? (
-              <Loader2 className="animate-spin" />
-            ) : (
-              <>
-                Lançar pedido
-                {totalCentavos > 0 && ` · ${formatBRL(totalCentavos)}`}
-              </>
-            )}
-          </Button>
-        </div>
+        <Button
+          variant="acao"
+          size="lg"
+          className="w-full"
+          disabled={carrinho.linhas.length === 0}
+          onClick={() => setRevisando(true)}
+        >
+          <ClipboardList />
+          {carrinho.linhas.length === 0
+            ? "Adicione itens ao pedido"
+            : `Revisar pedido · ${totalItens} ${totalItens === 1 ? "item" : "itens"} · ${formatBRL(totalCentavos)}`}
+        </Button>
       </footer>
+
+      <DrawerRevisao
+        aberto={revisando}
+        onFechar={() => setRevisando(false)}
+        carrinho={carrinho}
+        produtosPorId={produtosPorId}
+        mesas={mesas}
+        totalCentavos={totalCentavos}
+        lancando={lancar.isPending}
+        onLancar={() => lancar.mutate()}
+      />
 
       <DrawerItem
         produto={produtoAberto}

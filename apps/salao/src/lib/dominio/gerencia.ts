@@ -25,16 +25,19 @@ export const listarProdutosGerencia = async (restauranteId: string) => {
       .select()
       .from(schema.produtos)
       .where(eq(schema.produtos.restauranteId, restauranteId))
-      .orderBy(asc(schema.produtos.ordem), asc(schema.produtos.nome)),
+      .orderBy(asc(schema.produtos.codigo), asc(schema.produtos.nome)),
   ]);
   return categorias.map((categoria) => ({
     id: categoria.id,
     nome: categoria.nome,
     impressoraId: categoria.impressoraId,
+    codigoInicio: categoria.codigoInicio,
+    codigoFim: categoria.codigoFim,
     produtos: produtos
       .filter((p) => p.categoriaId === categoria.id)
       .map((p) => ({
         id: p.id,
+        codigo: p.codigo,
         nome: p.nome,
         precoCentavos: p.precoCentavos,
         disponivel: p.disponivel,
@@ -44,10 +47,62 @@ export const listarProdutosGerencia = async (restauranteId: string) => {
   }));
 };
 
+const codigoSchema = z.number().int().min(1).max(9999);
+
+// Menor código livre dentro da faixa da categoria.
+const proximoCodigoLivre = async (
+  restauranteId: string,
+  categoriaId: string,
+) => {
+  const [categoria] = await db()
+    .select()
+    .from(schema.categorias)
+    .where(
+      and(
+        eq(schema.categorias.id, categoriaId),
+        eq(schema.categorias.restauranteId, restauranteId),
+      ),
+    );
+  if (!categoria) throw naoEncontrado("Categoria");
+  if (categoria.codigoInicio === null || categoria.codigoFim === null)
+    return null;
+
+  const usados = new Set(
+    (
+      await db()
+        .select({ codigo: schema.produtos.codigo })
+        .from(schema.produtos)
+        .where(eq(schema.produtos.restauranteId, restauranteId))
+    ).map((p) => p.codigo),
+  );
+  for (
+    let codigo = categoria.codigoInicio;
+    codigo <= categoria.codigoFim;
+    codigo++
+  ) {
+    if (!usados.has(codigo)) return codigo;
+  }
+  throw conflito(
+    "faixa_cheia",
+    `A faixa de códigos de ${categoria.nome} (${categoria.codigoInicio}–${categoria.codigoFim}) está cheia. Aumente a faixa.`,
+  );
+};
+
+const traduzirCodigoRepetido = (error: unknown, codigo?: number | null) => {
+  if (violouConstraint(error, "produto_codigo_idx")) {
+    return conflito(
+      "codigo_em_uso",
+      `O código ${codigo} já é de outro produto.`,
+    );
+  }
+  return error;
+};
+
 export const criarProdutoSchema = z.object({
   categoriaId: z.uuid(),
   nome: z.string().trim().min(2).max(60),
   precoCentavos: z.number().int().min(0).max(1_000_000),
+  codigo: codigoSchema.optional(),
   controlaEstoque: z.boolean().default(false),
   estoque: z.number().int().min(0).max(100_000).nullable().default(null),
 });
@@ -56,24 +111,33 @@ export const criarProduto = async (
   restauranteId: string,
   input: z.infer<typeof criarProdutoSchema>,
 ) => {
-  const [produto] = await db()
-    .insert(schema.produtos)
-    .values({
-      restauranteId,
-      categoriaId: input.categoriaId,
-      nome: input.nome,
-      buscaNormalizada: normalizarBusca(input.nome),
-      precoCentavos: input.precoCentavos,
-      controlaEstoque: input.controlaEstoque,
-      estoque: input.controlaEstoque ? (input.estoque ?? 0) : null,
-    })
-    .returning();
-  notificar(restauranteId, ["cardapio"]);
-  return produto;
+  const codigo =
+    input.codigo ??
+    (await proximoCodigoLivre(restauranteId, input.categoriaId));
+  try {
+    const [produto] = await db()
+      .insert(schema.produtos)
+      .values({
+        restauranteId,
+        categoriaId: input.categoriaId,
+        codigo,
+        nome: input.nome,
+        buscaNormalizada: normalizarBusca(input.nome),
+        precoCentavos: input.precoCentavos,
+        controlaEstoque: input.controlaEstoque,
+        estoque: input.controlaEstoque ? (input.estoque ?? 0) : null,
+      })
+      .returning();
+    notificar(restauranteId, ["cardapio"]);
+    return produto;
+  } catch (error) {
+    throw traduzirCodigoRepetido(error, codigo);
+  }
 };
 
 export const editarProdutoSchema = z.object({
   nome: z.string().trim().min(2).max(60).optional(),
+  codigo: codigoSchema.nullable().optional(),
   precoCentavos: z.number().int().min(0).max(1_000_000).optional(),
   disponivel: z.boolean().optional(),
   controlaEstoque: z.boolean().optional(),
@@ -87,28 +151,44 @@ export const editarProduto = async (
   produtoId: string,
   input: z.infer<typeof editarProdutoSchema>,
 ) => {
-  const [produto] = await db()
-    .update(schema.produtos)
-    .set({
-      ...input,
-      ...(input.nome ? { buscaNormalizada: normalizarBusca(input.nome) } : {}),
-      ...(input.controlaEstoque === false ? { estoque: null } : {}),
-    })
-    .where(
-      and(
-        eq(schema.produtos.id, produtoId),
-        eq(schema.produtos.restauranteId, restauranteId),
-      ),
-    )
-    .returning();
-  if (!produto) throw naoEncontrado("Produto");
-  notificar(restauranteId, ["cardapio"]);
-  return produto;
+  try {
+    const [produto] = await db()
+      .update(schema.produtos)
+      .set({
+        ...input,
+        ...(input.nome
+          ? { buscaNormalizada: normalizarBusca(input.nome) }
+          : {}),
+        ...(input.controlaEstoque === false ? { estoque: null } : {}),
+      })
+      .where(
+        and(
+          eq(schema.produtos.id, produtoId),
+          eq(schema.produtos.restauranteId, restauranteId),
+        ),
+      )
+      .returning();
+    if (!produto) throw naoEncontrado("Produto");
+    notificar(restauranteId, ["cardapio"]);
+    return produto;
+  } catch (error) {
+    throw traduzirCodigoRepetido(error, input.codigo);
+  }
 };
 
-export const editarCategoriaSchema = z.object({
-  impressoraId: z.uuid().nullable(),
-});
+export const editarCategoriaSchema = z
+  .object({
+    impressoraId: z.uuid().nullable().optional(),
+    codigoInicio: codigoSchema.nullable().optional(),
+    codigoFim: codigoSchema.nullable().optional(),
+  })
+  .refine(
+    (c) =>
+      c.codigoInicio == null ||
+      c.codigoFim == null ||
+      c.codigoInicio <= c.codigoFim,
+    "O início da faixa precisa ser menor que o fim.",
+  );
 
 export const editarCategoria = async (
   restauranteId: string,

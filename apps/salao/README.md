@@ -26,6 +26,18 @@ Decisões que o código assume:
 - **Uma mesa, uma comanda aberta:** índice único parcial em `comanda_mesa`.
   Dois garçons abrindo a mesma mesa ao mesmo tempo caem na mesma comanda.
 - **Status da mesa é derivado** (comanda aberta + rodadas), nunca gravado.
+- **Editar item lançado** não altera a linha original: ela é cancelada
+  ("Alterado") e um item novo aponta para ela (`substitui_item_id`). Se o
+  ticket ainda está na fila, é corrigido lá; se já saiu, vai um ticket de
+  ALTERAÇÃO (antes/depois). Estoque ajustado só pela diferença.
+- **Pedido de ajuda** (`pedido_ajuda`): um aberto por mesa (índice único), o
+  primeiro que aceitar leva (`UPDATE ... WHERE aceito_por IS NULL`), e sem
+  resposta em `AJUDA_ESCALAR_APOS_SEGUNDOS` o servidor escala para o gerente.
+- **Código do cardápio**: cada categoria tem uma faixa (Lanches 1–19, Porções
+  20–29, Bebidas 30–79, Sobremesas 80–99); produto novo pega o próximo livre.
+  Digitar o número na busca acha o item; o código sai no ticket.
+- **Observações rápidas**: o "+" adiciona completos; cada chip separa 1
+  unidade com aquela observação. Ponto da carne (`tipo = preparo`) é exclusivo.
 - **Impressão assíncrona:** o garçom recebe sucesso na hora. A fila
   (`trabalho_impressao`) usa `FOR UPDATE SKIP LOCKED`, com retry 2s/8s/30s,
   depois `falhou` e reenvio automático quando a impressora volta. Com a
@@ -46,8 +58,12 @@ pnpm db:migrate && pnpm db:seed
 pnpm dev                    # http://localhost:3000/garcom
 ```
 
-Se o navegador não abrir `localhost`, use `http://127.0.0.1:3000` (o servidor
-escuta em IPv4). PINs do seed: Gerente `1234`, Garçom A `1111`, Garçom B `2222`.
+Ao subir, o servidor mostra os endereços para abrir neste computador e no
+celular (mesma rede Wi-Fi). Os IPs da própria máquina já são liberados no
+`allowedDevOrigins` do Next; outros hosts vão em `ALLOWED_DEV_ORIGINS`. Sem essa
+liberação, o Next bloqueia o WebSocket de HMR e a página nunca hidrata (fica
+carregando para sempre). PINs do seed: Gerente `1234`, Garçom A `1111`,
+Garçom B `2222`.
 O cardápio do seed é provisório; o real é cadastrado em `/gerente`.
 
 Sem impressora, `IMPRESSAO_DRIVER=arquivo` grava cada ticket em `.tickets/`

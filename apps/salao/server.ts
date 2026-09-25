@@ -4,6 +4,7 @@
 import { readFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
+import { networkInterfaces } from "node:os";
 import path from "node:path";
 import { parse as parseCookie } from "cookie";
 import express from "express";
@@ -13,6 +14,7 @@ import { Server as SocketServer } from "socket.io";
 
 import { pool } from "@/db";
 import { COOKIE_SESSAO, validarToken } from "@/lib/auth/sessao";
+import { manutencaoAjudas } from "@/lib/dominio/ajuda";
 import { env } from "@/lib/env";
 import { iniciarImpressao } from "@/lib/impressao/worker";
 import { iniciarMonitoramento } from "@/lib/monitoramento";
@@ -97,6 +99,13 @@ const main = async () => {
 
   const impressao = iniciarImpressao();
 
+  // Pedidos de ajuda sem resposta são escalados para o gerente.
+  const manutencao = setInterval(() => {
+    manutencaoAjudas(config.AJUDA_ESCALAR_APOS_SEGUNDOS).catch((error) =>
+      runtime().reportarErro?.(error, { origem: "manutencaoAjudas" }),
+    );
+  }, 15_000);
+
   // Um bug de cliente em loop não pode derrubar o servidor do salão.
   const limiteLogin = rateLimit({
     windowMs: 60_000,
@@ -141,13 +150,22 @@ const main = async () => {
 
   httpServer.listen(config.PORT, config.HOST, () => {
     const protocolo = config.HTTPS_KEY ? "https" : "http";
+    const naRede = Object.values(networkInterfaces())
+      .flat()
+      .filter((i) => i && i.family === "IPv4" && !i.internal)
+      .map((i) => `${protocolo}://${i?.address}:${config.PORT}/garcom`);
     console.log(
-      `[salao] ${protocolo}://${config.HOST}:${config.PORT} (${dev ? "dev" : "produção"})`,
+      [
+        `[salao] rodando (${dev ? "dev" : "produção"})`,
+        `  neste computador: ${protocolo}://localhost:${config.PORT}/garcom`,
+        ...naRede.map((url) => `  na rede (celular): ${url}`),
+      ].join("\n"),
     );
   });
 
   const desligar = async (sinal: string) => {
     console.log(`[salao] ${sinal} recebido, desligando...`);
+    clearInterval(manutencao);
     await impressao.parar();
     io.close();
     httpServer.close();

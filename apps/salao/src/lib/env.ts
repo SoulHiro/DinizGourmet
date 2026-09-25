@@ -7,7 +7,8 @@ const envSchema = z.object({
     .default("development"),
   DATABASE_URL: z.string().min(1, "DATABASE_URL não está definida"),
   PORT: z.coerce.number().default(3000),
-  HOST: z.string().default("0.0.0.0"),
+  // "::" escuta IPv4 e IPv6 (localhost no navegador pode resolver para ::1).
+  HOST: z.string().default("::"),
   // Com HTTPS na LAN (mkcert ou domínio próprio) o cookie pode ser Secure.
   COOKIE_SECURE: z
     .enum(["true", "false"])
@@ -28,6 +29,8 @@ const envSchema = z.object({
   HTTPS_CERT: z.string().optional(),
   // Escritas por minuto por IP (cada celular é um IP). Aumentar só no teste de carga.
   RATE_LIMIT_ESCRITA_POR_MIN: z.coerce.number().default(240),
+  // Pedido de ajuda sem resposta por este tempo vira alerta para o gerente.
+  AJUDA_ESCALAR_APOS_SEGUNDOS: z.coerce.number().default(120),
   SENTRY_DSN: z.string().optional(),
 });
 

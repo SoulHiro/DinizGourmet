@@ -9,6 +9,7 @@
  * Regra fixa: cores de status nunca coincidem com as de marca.
  */
 :root {
+  color-scheme: light;
   --bg-base: #f7f2ea;
   --bg-surface: #ffffff;
   --text-primary: #2b1b0e;
@@ -31,6 +32,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   --bg-base: #17110c;
   --bg-surface: #231a13;
   --text-primary: #f3eadc;
@@ -54,7 +56,7 @@
 @theme inline {
   --font-sans: "Source Sans 3 Variable", ui-sans-serif, system-ui, sans-serif;
 
-  --color-base: var(--bg-base);
+  --color-fundo: var(--bg-base);
   --color-surface: var(--bg-surface);
   --color-texto: var(--text-primary);
   --color-texto-secundario: var(--text-secondary);
@@ -105,7 +107,16 @@
     -webkit-tap-highlight-color: transparent;
   }
   body {
-    @apply bg-base text-texto antialiased;
+    @apply bg-fundo text-texto antialiased;
     overscroll-behavior-y: none;
+  }
+  input,
+  select,
+  textarea {
+    color: var(--text-primary);
+  }
+  ::placeholder {
+    color: var(--text-secondary);
+    opacity: 0.8;
   }
 }

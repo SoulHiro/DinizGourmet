@@ -11,6 +11,7 @@ import { cn, formatBRL } from "@/lib/utils";
 
 type Produto = {
   id: string;
+  codigo: number | null;
   nome: string;
   precoCentavos: number;
   disponivel: boolean;
@@ -21,6 +22,8 @@ type Categoria = {
   id: string;
   nome: string;
   impressoraId: string | null;
+  codigoInicio: number | null;
+  codigoFim: number | null;
   produtos: Produto[];
 };
 type Impressora = { id: string; nome: string };
@@ -59,14 +62,16 @@ export const GerenciaCardapio = () => {
   const rotear = useMutation({
     mutationFn: ({
       id,
-      impressoraId,
+      ...dados
     }: {
       id: string;
-      impressoraId: string | null;
+      impressoraId?: string | null;
+      codigoInicio?: number | null;
+      codigoFim?: number | null;
     }) =>
       api(`/api/gerente/categorias/${id}`, {
         method: "PATCH",
-        json: { impressoraId },
+        json: dados,
       }),
     onSuccess: atualizar,
     onError: (e) => toast.error(e.message),
@@ -117,6 +122,37 @@ export const GerenciaCardapio = () => {
         >
           <header className="flex flex-wrap items-center gap-2 border-borda border-b p-3">
             <h2 className="flex-1 font-bold text-lg">{categoria.nome}</h2>
+            <button
+              type="button"
+              className="text-sm text-texto-secundario underline"
+              onClick={() => {
+                const atual =
+                  categoria.codigoInicio !== null
+                    ? `${categoria.codigoInicio}-${categoria.codigoFim}`
+                    : "";
+                const valor = window.prompt(
+                  `Faixa de códigos de ${categoria.nome} (ex.: 1-19)`,
+                  atual,
+                );
+                if (valor === null) return;
+                const [inicio, fim] = valor
+                  .split(/[-–]/)
+                  .map((n) => Number.parseInt(n.trim(), 10));
+                if (!inicio || !fim) {
+                  toast.error("Use o formato início-fim, ex.: 20-29");
+                  return;
+                }
+                rotear.mutate({
+                  id: categoria.id,
+                  codigoInicio: inicio,
+                  codigoFim: fim,
+                });
+              }}
+            >
+              {categoria.codigoInicio !== null
+                ? `Códigos ${categoria.codigoInicio}–${categoria.codigoFim}`
+                : "Definir códigos"}
+            </button>
             <label className="flex items-center gap-2 text-sm">
               Imprime em
               <select
@@ -151,6 +187,32 @@ export const GerenciaCardapio = () => {
                       !p.disponivel && "text-texto-secundario line-through",
                     )}
                   >
+                    <button
+                      type="button"
+                      aria-label={`Código de ${p.nome}`}
+                      className="mr-1.5 font-bold text-texto-secundario tabular-nums underline"
+                      onClick={() => {
+                        const valor = window.prompt(
+                          `Código de ${p.nome} (número único do cardápio)`,
+                          p.codigo?.toString() ?? "",
+                        );
+                        if (valor === null) return;
+                        const codigo =
+                          valor.trim() === ""
+                            ? null
+                            : Number.parseInt(valor, 10);
+                        if (
+                          codigo !== null &&
+                          (!Number.isInteger(codigo) || codigo < 1)
+                        ) {
+                          toast.error("Código inválido");
+                          return;
+                        }
+                        editar.mutate({ id: p.id, codigo });
+                      }}
+                    >
+                      {p.codigo ?? "#"}
+                    </button>
                     {p.nome}
                   </p>
                   <button

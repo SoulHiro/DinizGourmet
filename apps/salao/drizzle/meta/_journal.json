@@ -8,6 +8,13 @@
       "when": 1790277324142,
       "tag": "0000_inicial",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790285323766,
+      "tag": "0001_cardapio_codigos_edicao_ajuda",
+      "breakpoints": true
     }
   ]
 }

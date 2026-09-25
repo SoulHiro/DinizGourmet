@@ -32,6 +32,7 @@ export type MesaMapa = {
   abertaEm: string | null;
   ultimaRodadaEm: string | null;
   totalCentavos: number;
+  ajudaPendente: boolean;
 };
 
 export const listarMapa = async (
@@ -46,12 +47,17 @@ export const listarMapa = async (
     aberta_em: Date | null;
     rodadas: number;
     ultima_rodada_em: Date | null;
+    ajuda: boolean;
     total: number;
   }>(sql`
     select m.id, m.numero,
            c.id as comanda_id, c.mesa_principal_id, f.nome as garcom, c.aberta_em,
            coalesce(r.qtd, 0)::int as rodadas, r.ultima as ultima_rodada_em,
-           coalesce(t.total, 0)::int as total
+           coalesce(t.total, 0)::int as total,
+           exists (
+             select 1 from pedido_ajuda pa
+              where pa.mesa_id = m.id and pa.encerrado_em is null and pa.aceito_por is null
+           ) as ajuda
       from mesa m
       left join comanda_mesa cm on cm.mesa_id = m.id and cm.saiu_em is null
       left join comanda c on c.id = cm.comanda_id and c.status = 'aberta'
@@ -102,6 +108,7 @@ export const listarMapa = async (
         ? new Date(linha.ultima_rodada_em).toISOString()
         : null,
       totalCentavos: linha.total,
+      ajudaPendente: linha.ajuda,
     };
   });
 };
@@ -132,7 +139,12 @@ export const detalharMesa = async (restauranteId: string, mesaId: string) => {
           orderBy: [asc(schema.itensPedido.criadoEm)],
           with: {
             modificadores: {
-              columns: { nome: true, tipo: true, precoCentavos: true },
+              columns: {
+                modificadorId: true,
+                nome: true,
+                tipo: true,
+                precoCentavos: true,
+              },
             },
             mesaOrigem: { columns: { numero: true } },
           },
@@ -191,17 +203,29 @@ export const detalharMesa = async (restauranteId: string, mesaId: string) => {
                 )
               ? ("pendente" as const)
               : ("impresso" as const),
-          itens: rodada.itens.map((item) => ({
-            id: item.id,
-            nome: item.nomeProduto,
-            quantidade: item.quantidade,
-            totalCentavos: item.totalCentavos,
-            observacao: item.observacao,
-            mesaOrigem: item.mesaOrigem.numero,
-            modificadores: item.modificadores.map((m) => m.nome),
-            status: item.status,
-            motivoCancelamento: item.motivoCancelamento,
-          })),
+          // Itens substituídos por uma edição somem da tela (ficam no banco
+          // para auditoria); o novo aparece marcado como editado.
+          itens: rodada.itens
+            .filter(
+              (item) =>
+                !rodada.itens.some(
+                  (outro) => outro.substituiItemId === item.id,
+                ),
+            )
+            .map((item) => ({
+              id: item.id,
+              produtoId: item.produtoId,
+              nome: item.nomeProduto,
+              editado: item.substituiItemId !== null,
+              modificadorIds: item.modificadores.map((m) => m.modificadorId),
+              quantidade: item.quantidade,
+              totalCentavos: item.totalCentavos,
+              observacao: item.observacao,
+              mesaOrigem: item.mesaOrigem.numero,
+              modificadores: item.modificadores.map((m) => m.nome),
+              status: item.status,
+              motivoCancelamento: item.motivoCancelamento,
+            })),
         };
       }),
     },
