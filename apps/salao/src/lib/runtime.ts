@@ -24,6 +24,8 @@ export type StatusImpressora = {
   nomeDriver: string;
   estado: "pronta" | "ocupada" | "offline" | "erro" | "desconhecido";
   pendentes: number;
+  // Só quando offline/erro: o que o Windows respondeu.
+  motivo?: string;
 };
 
 const globalRuntime = globalThis as unknown as { __salaoRuntime?: Runtime };

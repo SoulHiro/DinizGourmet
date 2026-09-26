@@ -350,22 +350,30 @@ export const iniciarImpressao = (
     const porImpressora = new Map(
       contagem.map((c) => [c.impressoraId, c.total]),
     );
-    return ativas.map((impressora) => {
-      const estado = estados.get(impressora.id);
-      return {
-        id: impressora.id,
-        nome: impressora.nome,
-        nomeDriver: impressora.nomeDriver,
-        estado:
-          estado === "pronta" ||
-          estado === "ocupada" ||
-          estado === "offline" ||
-          estado === "erro"
-            ? estado
-            : "desconhecido",
-        pendentes: porImpressora.get(impressora.id) ?? 0,
-      };
-    });
+    return Promise.all(
+      ativas.map(async (impressora) => {
+        const estado = estados.get(impressora.id);
+        const problema = estado === "offline" || estado === "erro";
+        return {
+          motivo: problema
+            ? await driver
+                .diagnosticar?.(impressora.nomeDriver)
+                .catch(() => undefined)
+            : undefined,
+          id: impressora.id,
+          nome: impressora.nome,
+          nomeDriver: impressora.nomeDriver,
+          estado:
+            estado === "pronta" ||
+            estado === "ocupada" ||
+            estado === "offline" ||
+            estado === "erro"
+              ? estado
+              : "desconhecido",
+          pendentes: porImpressora.get(impressora.id) ?? 0,
+        };
+      }),
+    );
   };
 
   const controle: ControleImpressao = {

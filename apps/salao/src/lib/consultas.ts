@@ -45,6 +45,7 @@ export type ResumoImpressao = {
     nome: string;
     estado: string;
     pendentes: number;
+    motivo?: string;
   }[];
 };
 

@@ -102,6 +102,11 @@ export const BadgeImpressao = () => {
                   <p className="text-sm text-texto-secundario">
                     {ROTULO_ESTADO[impressora.estado] ?? impressora.estado}
                   </p>
+                  {impressora.motivo && (
+                    <p className="mt-1 break-words text-left text-texto-secundario text-xs">
+                      {impressora.motivo}
+                    </p>
+                  )}
                 </li>
               ))}
             </ul>
