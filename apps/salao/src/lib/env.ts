@@ -21,7 +21,7 @@ const envSchema = z.object({
   IMPRESSAO_LARGURA: z.coerce.number().default(48),
   // Elgin i9 costuma vir em PC850; confirmar acentos no spike de impressão.
   IMPRESSAO_CODEPAGE: z
-    .enum(["PC850_MULTILINGUAL", "PC860_PORTUGUESE", "WPC1252"])
+    .enum(["PC850_MULTILINGUAL", "PC860_PORTUGUESE", "WPC1252", "ASCII"])
     .default("PC850_MULTILINGUAL"),
   // Quanto esperar o job sair da fila do Windows antes de considerar falha.
   IMPRESSAO_TIMEOUT_JOB_MS: z.coerce.number().default(20_000),

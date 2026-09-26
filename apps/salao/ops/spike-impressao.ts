@@ -4,12 +4,15 @@
 //   pnpm impressao:spike "ELGIN i9" [codepage]  imprime ticket de teste e acompanha o job
 //
 // Codepages para testar acentos: PC850_MULTILINGUAL (padrão), PC860_PORTUGUESE, WPC1252.
+// ASCII imprime sem acentos (Ç vira C) e funciona em qualquer impressora.
 // Repita com a impressora DESLIGADA e SEM PAPEL e anote o que aparece aqui.
 import printer from "@ssxv/node-printer";
 
-import { montarLinhas, renderizarEscPos } from "@/lib/impressao/ticket";
-
-type Codepage = "PC850_MULTILINGUAL" | "PC860_PORTUGUESE" | "WPC1252";
+import {
+  type Codepage,
+  montarLinhas,
+  renderizarEscPos,
+} from "@/lib/impressao/ticket";
 
 const dormir = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
