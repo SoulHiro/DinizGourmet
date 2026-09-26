@@ -10,6 +10,7 @@ import {
   type EstadoImpressora,
 } from "./driver";
 import {
+  type Codepage,
   montarLinhas,
   renderizarEscPos,
   renderizarTexto,
@@ -84,7 +85,7 @@ export type OpcoesProcessamento = {
   backoffMs?: number[];
   timeoutJobMs?: number;
   largura?: number;
-  codepage?: "PC850_MULTILINGUAL" | "PC860_PORTUGUESE" | "WPC1252";
+  codepage?: Codepage;
 };
 
 // Processa no máximo um trabalho. Retorna o estado da impressora e se

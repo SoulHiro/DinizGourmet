@@ -278,17 +278,10 @@ export const GerenciaImpressoras = () => {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm text-texto-secundario">
-        O &quot;nome no Windows&quot; precisa ser idêntico ao que aparece em
-        Configurações &gt; Impressoras.
         {doSistema && doSistema.length > 0
-          ? " Escolha na lista abaixo."
-          : " (Lista automática disponível só no PC do restaurante.)"}
+          ? "Escolha, em cada uma, qual impressora do Windows ela usa e toque em Salvar. Depois use Imprimir teste."
+          : "A lista do Windows só aparece no PC do restaurante. Aqui, digite o nome exato que está em Configurações > Impressoras."}
       </p>
-      <datalist id="impressoras-sistema">
-        {doSistema?.map((i) => (
-          <option key={i.nome} value={i.nome} />
-        ))}
-      </datalist>
       {impressoras?.map((impressora) => (
         <form
           key={impressora.id}
@@ -315,15 +308,37 @@ export const GerenciaImpressoras = () => {
               {impressora.setor}
             </span>
           </div>
-          <label className="flex flex-col gap-1 text-sm">
-            Nome no Windows
-            <input
-              name="nomeDriver"
-              list="impressoras-sistema"
-              defaultValue={impressora.nomeDriver}
-              className={campo}
-            />
-          </label>
+          <div className="flex flex-col gap-1 text-sm">
+            <span>Impressora no Windows</span>
+            {doSistema && doSistema.length > 0 ? (
+              <select
+                aria-label="Impressora no Windows"
+                name="nomeDriver"
+                defaultValue={impressora.nomeDriver}
+                className={campo}
+              >
+                {/* A atual sempre aparece, mesmo que o Windows não a liste
+                    (desinstalada ou nome digitado errado). */}
+                {!doSistema.some((i) => i.nome === impressora.nomeDriver) && (
+                  <option value={impressora.nomeDriver}>
+                    {impressora.nomeDriver} (não encontrada no Windows)
+                  </option>
+                )}
+                {doSistema.map((i) => (
+                  <option key={i.nome} value={i.nome}>
+                    {i.nome}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                aria-label="Impressora no Windows"
+                name="nomeDriver"
+                defaultValue={impressora.nomeDriver}
+                className={campo}
+              />
+            )}
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <label className="flex flex-1 items-center gap-2">
               <input

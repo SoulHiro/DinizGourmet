@@ -322,17 +322,47 @@ export const renderizarTexto = (linhas: Linha[], largura: number) =>
     })
     .join("\n");
 
+// "ASCII" imprime sem acentos (Ç vira C): funciona em qualquer impressora,
+// inclusive as que ignoram a troca de tabela de caracteres.
+export type Codepage =
+  | "PC850_MULTILINGUAL"
+  | "PC860_PORTUGUESE"
+  | "WPC1252"
+  | "ASCII";
+
+const semAcentos = (texto: string) =>
+  texto.normalize("NFD").replace(/\p{Diacritic}/gu, "");
+
+const linhaSemAcentos = (linha: Linha): Linha => {
+  if (linha.tipo === "texto") {
+    return { ...linha, texto: semAcentos(linha.texto) };
+  }
+  if (linha.tipo === "colunas") {
+    return {
+      ...linha,
+      esquerda: semAcentos(linha.esquerda),
+      direita: semAcentos(linha.direita),
+    };
+  }
+  return linha;
+};
+
 export const renderizarEscPos = (
-  linhas: Linha[],
+  linhasOriginais: Linha[],
   largura: number,
-  codepage: "PC850_MULTILINGUAL" | "PC860_PORTUGUESE" | "WPC1252",
+  codepage: Codepage,
 ): Buffer => {
+  const linhas =
+    codepage === "ASCII"
+      ? linhasOriginais.map(linhaSemAcentos)
+      : linhasOriginais;
   // A interface nunca é usada: só montamos o buffer e quem envia é o Winspool.
   const printer = new ThermalPrinter({
     type: PrinterTypes.EPSON,
     interface: "tcp://127.0.0.1:9100",
     width: largura,
-    characterSet: CharacterSet[codepage],
+    characterSet:
+      codepage === "ASCII" ? CharacterSet.PC437_USA : CharacterSet[codepage],
     removeSpecialCharacters: false,
     lineCharacter: "-",
   });
