@@ -1,0 +1,55 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1790277324142,
+      "tag": "0000_inicial",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790285323766,
+      "tag": "0001_cardapio_codigos_edicao_ajuda",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790299017494,
+      "tag": "0002_fase2_chamados_auxilio_gorjeta",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790304475816,
+      "tag": "0003_cardapio_digital",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790335604990,
+      "tag": "0004_taxa_servico",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790349354333,
+      "tag": "0005_fase3_insumos_descontos_taxa",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790360366640,
+      "tag": "0006_caixa_pagamentos",
+      "breakpoints": true
+    }
+  ]
+}
