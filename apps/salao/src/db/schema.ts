@@ -77,6 +77,12 @@ export const metodoPagamentoEnum = pgEnum("metodo_pagamento", [
   "vale_refeicao",
 ]);
 
+// Layout do papel: tickets de pedido (cozinha/bar) e conta do cliente.
+export const modeloImpressaoEnum = pgEnum("modelo_impressao", [
+  "pedido",
+  "conta",
+]);
+
 export const tipoDescontoEnum = pgEnum("tipo_desconto", [
   "percentual",
   "valor",
@@ -728,6 +734,21 @@ export const chamados = pgTable(
       .on(t.mesaId, t.tipo)
       .where(sql`${t.encerradoEm} is null`),
   ],
+);
+
+// Personalização do papel feita pelo gerente (/gerente > Impressão). Sem
+// linha aqui, vale o layout padrão (src/lib/impressao/layout.ts).
+export const layoutsImpressao = pgTable(
+  "layout_impressao",
+  {
+    restauranteId: uuid("restaurante_id")
+      .notNull()
+      .references(() => restaurantes.id),
+    modelo: modeloImpressaoEnum("modelo").notNull(),
+    config: jsonb("config").notNull(),
+    atualizadoEm: atualizadoEm(),
+  },
+  (t) => [primaryKey({ columns: [t.restauranteId, t.modelo] })],
 );
 
 export const gorjetaDivisoes = pgTable(

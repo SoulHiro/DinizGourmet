@@ -2,6 +2,7 @@ import { and, count, eq, inArray, sql } from "drizzle-orm";
 
 import { db, schema } from "@/db";
 import type { SetorImpressora, TicketPayload } from "@/db/schema";
+import { carregarLayout } from "@/lib/dominio/layout-impressao";
 import { env } from "@/lib/env";
 import { notificar, runtime, type StatusImpressora } from "@/lib/runtime";
 import {
@@ -107,10 +108,17 @@ export const processarProximo = async (
   const trabalho = await reivindicar(impressora.id);
   if (!trabalho) return { estado, processou: false };
 
+  // Layout personalizado pelo gerente (conta ou pedido); falhar ao ler não
+  // pode impedir a impressão, então cai no padrão.
+  const layout = await carregarLayout(
+    trabalho.restaurante_id,
+    trabalho.tipo === "conta" ? "conta" : "pedido",
+  ).catch(() => undefined);
   const linhas = montarLinhas(
     trabalho.tipo,
     impressora.setor,
     trabalho.payload,
+    layout,
   );
   const largura = opcoes.largura ?? env().IMPRESSAO_LARGURA;
 

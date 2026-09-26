@@ -15,6 +15,7 @@ import {
 import { GerenciaCardapio } from "./_components/cardapio";
 import { GerenciaDescontos, GerenciaEstoque } from "./_components/estoque";
 import { ResumoNoite } from "./_components/noite";
+import { PersonalizarPapel } from "./_components/papel";
 
 const ABAS = [
   { valor: "noite", rotulo: "Noite" },
@@ -24,6 +25,7 @@ const ABAS = [
   { valor: "mesas", rotulo: "Mesas" },
   { valor: "equipe", rotulo: "Equipe" },
   { valor: "impressoras", rotulo: "Impressoras" },
+  { valor: "papel", rotulo: "Papel" },
 ] as const;
 
 type Aba = (typeof ABAS)[number]["valor"];
@@ -81,6 +83,7 @@ export default function GerentePage() {
         {aba === "mesas" && <GerenciaMesas />}
         {aba === "equipe" && <GerenciaEquipe />}
         {aba === "impressoras" && <GerenciaImpressoras />}
+        {aba === "papel" && <PersonalizarPapel />}
       </main>
     </div>
   );
