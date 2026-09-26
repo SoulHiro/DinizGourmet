@@ -22,6 +22,9 @@ export type DriverImpressao = {
   estadoJob(nomeDriver: string, job: number): Promise<EstadoJob>;
   cancelarJob(nomeDriver: string, job: number): Promise<void>;
   listar(): Promise<{ nome: string; estado: string }[]>;
+  // Por que a impressora está offline/com erro (o que o Windows respondeu),
+  // para o gerente ver na tela em vez de adivinhar.
+  diagnosticar?(nomeDriver: string): Promise<string>;
 };
 
 // Dev e testes: grava cada ticket como .txt legível (e o .bin ESC/POS).
@@ -121,6 +124,24 @@ export const criarDriverWindows = (): DriverImpressao => {
     async listar() {
       const lista = await (await lib()).printers.list();
       return lista.map((p) => ({ nome: p.name, estado: p.state }));
+    },
+    async diagnosticar(nomeDriver) {
+      try {
+        const modulo = await lib();
+        const [info, lista] = await Promise.all([
+          modulo.printers.get(nomeDriver),
+          modulo.printers.list(),
+        ]);
+        const naLista = lista.find((p) => p.name === nomeDriver);
+        return `Windows informa "${info.state}" ao consultar o nome${
+          naLista
+            ? ` (na lista geral: "${naLista.state}")`
+            : " (mas o nome NÃO está na lista geral)"
+        }`;
+      } catch (error) {
+        const e = error as { code?: string; message?: string };
+        return `Não foi possível consultar "${nomeDriver}": ${e.code ?? ""} ${e.message ?? String(error)}`.trim();
+      }
     },
   };
 };

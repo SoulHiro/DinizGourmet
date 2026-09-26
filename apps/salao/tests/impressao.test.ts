@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { db, schema } from "@/db";
 import type { Sessao } from "@/lib/auth/sessao";
+import { salvarLayout } from "@/lib/dominio/layout-impressao";
 import { lancarRodada } from "@/lib/dominio/rodadas";
 import {
   criarDriverArquivo,
@@ -96,8 +97,66 @@ describe("worker de impressão", () => {
     );
     expect(ticket).toContain("CHAPA");
     expect(ticket).toContain("MESA 1");
-    expect(ticket).toContain("1x 1 - XIS BUENAS - CLÁSSICO");
+    // O número do cardápio não sai mais no papel (confundia a cozinha).
+    expect(ticket).toContain("1x XIS BUENAS - CLÁSSICO");
+    expect(ticket).not.toContain("1x 1 -");
     expect(ticket).toContain("OBS: sem cebola");
+  });
+
+  it("usa o layout salvo pelo gerente", async () => {
+    await salvarLayout(garcom.funcionario.restauranteId, {
+      modelo: "pedido",
+      layout: {
+        blocos: [
+          {
+            id: "mesa",
+            ativo: true,
+            estilo: { tamanho: "gigante", destaque: true },
+            opcoes: { prefixo: "Mesa nº" },
+          },
+          {
+            id: "detalhes",
+            ativo: true,
+            estilo: {},
+            opcoes: { garcom: false },
+          },
+          { id: "itens", ativo: true, estilo: {}, opcoes: { codigo: true } },
+          {
+            id: "texto_rodape",
+            ativo: true,
+            estilo: {},
+            opcoes: { texto: "Bom trabalho!" },
+          },
+        ],
+      },
+    });
+    await lancarXis(8);
+    await drenar(criarDriverArquivo(pasta));
+
+    const chapa = await impressoraDoSetor("chapa");
+    const pastaImpressora = path.join(
+      pasta,
+      chapa.nomeDriver.replace(/[^\w.-]+/g, "_"),
+    );
+    const tickets = await Promise.all(
+      (await readdir(pastaImpressora))
+        .filter((a) => a.endsWith(".txt"))
+        .map((a) => readFile(path.join(pastaImpressora, a), "utf8")),
+    );
+    const ticket = tickets.find((t) => t.includes("Mesa nº 8")) ?? "";
+    // Destaque: espaço de cada lado para o fundo escuro ter respiro.
+    expect(ticket).toContain(" Mesa nº 8 ");
+    expect(ticket).toContain("1x 1 - XIS BUENAS - CLÁSSICO");
+    expect(ticket).not.toContain("Garçom B");
+    expect(ticket).toContain("Bom trabalho!");
+    // A mesa (obrigatória) continua; a ordem salva é respeitada.
+    expect(ticket.indexOf("Mesa nº 8")).toBeLessThan(
+      ticket.indexOf("XIS BUENAS"),
+    );
+    await salvarLayout(garcom.funcionario.restauranteId, {
+      modelo: "pedido",
+      layout: { blocos: [] },
+    });
   });
 
   it("com a impressora offline não entrega ao spooler; imprime quando volta", async () => {

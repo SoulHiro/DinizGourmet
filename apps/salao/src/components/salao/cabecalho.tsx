@@ -1,7 +1,8 @@
 "use client";
 
-import { ChevronLeft, LogOut, Moon, Sun } from "lucide-react";
+import { ChevronLeft, LogOut, Moon, Settings, Sun, Wallet } from "lucide-react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 
 import { useFuncionario } from "@/components/providers/sessao";
@@ -23,7 +24,16 @@ export const Cabecalho = ({
 }) => {
   const conexao = useConexao();
   // Impressão é automática; só o gerente acompanha a fila e reenvia falhas.
-  const podeVerImpressao = useFuncionario().papel === "gerente";
+  const { papel } = useFuncionario();
+  const podeVerImpressao = papel === "gerente";
+  // Nas telas do garçom, gerente e caixa têm um atalho de volta ao painel deles.
+  const noGarcom = usePathname().startsWith("/garcom");
+  const painel =
+    noGarcom && papel === "gerente"
+      ? { href: "/gerente", rotulo: "Voltar para a gerência", Icone: Settings }
+      : noGarcom && papel === "caixa"
+        ? { href: "/caixa", rotulo: "Voltar para o caixa", Icone: Wallet }
+        : null;
   const { resolvedTheme, setTheme } = useTheme();
 
   const sair = async () => {
@@ -64,6 +74,16 @@ export const Cabecalho = ({
           )}
         />
         {acoes}
+        {painel && (
+          <Link
+            href={painel.href}
+            aria-label={painel.rotulo}
+            title={painel.rotulo}
+            className="flex size-12 items-center justify-center"
+          >
+            <painel.Icone />
+          </Link>
+        )}
         {podeVerImpressao && <BadgeImpressao />}
         <button
           type="button"
