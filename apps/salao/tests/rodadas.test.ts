@@ -3,12 +3,15 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import { db, schema } from "@/db";
 import type { Sessao } from "@/lib/auth/sessao";
+import { abrirComanda, comandaPorNumero } from "@/lib/dominio/mesas";
 import { lancarRodada } from "@/lib/dominio/rodadas";
 import type { ErroDominio } from "@/lib/erros";
 import {
   chave,
+  comandaDaMesa,
   contar,
   definirEstoque,
+  lancarNaMesa,
   mesa,
   modificador,
   produto,
@@ -41,7 +44,7 @@ describe("lançar rodada", () => {
     const semErvilha = await modificador("Sem ervilha");
     const bacon = await modificador("Bacon extra");
 
-    const r = await lancarRodada(garcomA, m.id, {
+    const r = await lancarNaMesa(garcomA, m.id, {
       idempotencyKey: chave(),
       itens: [
         {
@@ -87,7 +90,7 @@ describe("lançar rodada", () => {
   it("segunda rodada na mesma mesa usa a mesma comanda e numera 2", async () => {
     const m = await mesa(1);
     const agua = await produto("Água sem Gás");
-    const r = await lancarRodada(garcomB, m.id, {
+    const r = await lancarNaMesa(garcomB, m.id, {
       idempotencyKey: chave(),
       itens: [{ produtoId: agua.id, quantidade: 1, modificadorIds: [] }],
     });
@@ -102,8 +105,8 @@ describe("lançar rodada", () => {
       idempotencyKey: chave(),
       itens: [{ produtoId: agua.id, quantidade: 1, modificadorIds: [] }],
     };
-    const primeira = await lancarRodada(garcomA, m.id, input);
-    const segunda = await lancarRodada(garcomA, m.id, input);
+    const primeira = await lancarNaMesa(garcomA, m.id, input);
+    const segunda = await lancarNaMesa(garcomA, m.id, input);
     expect(segunda.rodadaId).toBe(primeira.rodadaId);
     expect(segunda.repetida).toBe(true);
     expect(
@@ -119,7 +122,7 @@ describe("lançar rodada", () => {
       itens: [{ produtoId: agua.id, quantidade: 1, modificadorIds: [] }],
     };
     const resultados = await Promise.all(
-      Array.from({ length: 5 }, () => lancarRodada(garcomA, m.id, input)),
+      Array.from({ length: 5 }, () => lancarNaMesa(garcomA, m.id, input)),
     );
     expect(new Set(resultados.map((r) => r.rodadaId)).size).toBe(1);
     expect(resultados.filter((r) => !r.repetida)).toHaveLength(1);
@@ -131,24 +134,38 @@ describe("lançar rodada", () => {
     ).toBe(1);
   });
 
-  it("dois garçons abrindo a mesma mesa livre ao mesmo tempo geram 1 comanda", async () => {
+  it("dois garçons abrindo o mesmo cartão ao mesmo tempo geram 1 comanda", async () => {
     const m = await mesa(4);
     const agua = await produto("Água sem Gás");
+    const aberturas = await Promise.allSettled([
+      abrirComanda(garcomA, { mesaId: m.id, numero: 44 }),
+      abrirComanda(garcomB, { mesaId: m.id, numero: 44 }),
+    ]);
+    expect(aberturas.filter((a) => a.status === "fulfilled")).toHaveLength(1);
+    const recusada = aberturas.find((a) => a.status === "rejected");
+    expect((recusada as PromiseRejectedResult).reason.codigo).toBe(
+      "cartao_em_uso",
+    );
+    expect(await contar("comanda", "numero = 44 and status = 'aberta'")).toBe(
+      1,
+    );
+
+    // Os dois lançando juntos na mesma comanda: rodadas 1 e 2, sem duplicar.
+    const { comandaId } = await comandaPorNumero(
+      garcomA.funcionario.restauranteId,
+      44,
+    );
     const [a, b] = await Promise.all([
-      lancarRodada(garcomA, m.id, {
+      lancarRodada(garcomA, comandaId, {
         idempotencyKey: chave(),
         itens: [{ produtoId: agua.id, quantidade: 1, modificadorIds: [] }],
       }),
-      lancarRodada(garcomB, m.id, {
+      lancarRodada(garcomB, comandaId, {
         idempotencyKey: chave(),
         itens: [{ produtoId: agua.id, quantidade: 2, modificadorIds: [] }],
       }),
     ]);
-    expect(a.comandaId).toBe(b.comandaId);
     expect([a.numero, b.numero].sort()).toEqual([1, 2]);
-    expect(
-      await contar("comanda_mesa", `mesa_id = '${m.id}' and saiu_em is null`),
-    ).toBe(1);
   });
 
   it("estoque nunca fica negativo com 20 lançamentos paralelos disputando 3 unidades", async () => {
@@ -157,10 +174,13 @@ describe("lançar rodada", () => {
     const mesas = await Promise.all(
       Array.from({ length: 10 }, (_, i) => mesa(i + 5)),
     );
+    // Comandas abertas antes; a disputa é só pelo estoque.
+    const comandas: string[] = [];
+    for (const m of mesas) comandas.push(await comandaDaMesa(garcomA, m.id));
 
     const tentativas = await Promise.allSettled(
       Array.from({ length: 20 }, (_, i) =>
-        lancarRodada(i % 2 ? garcomA : garcomB, mesas[i % 10].id, {
+        lancarRodada(i % 2 ? garcomA : garcomB, comandas[i % 10], {
           idempotencyKey: chave(),
           itens: [{ produtoId: coracao.id, quantidade: 1, modificadorIds: [] }],
         }),
@@ -192,10 +212,11 @@ describe("lançar rodada", () => {
     const agua = await produto("Água sem Gás");
     await definirEstoque(coracao.id, 1);
     const m = await mesa(18);
+    const comandaId = await comandaDaMesa(garcomA, m.id);
     const antes = await contar("item_pedido");
 
     const erro = await erroDe(
-      lancarRodada(garcomA, m.id, {
+      lancarRodada(garcomA, comandaId, {
         idempotencyKey: chave(),
         itens: [
           { produtoId: agua.id, quantidade: 1, modificadorIds: [] },
@@ -205,9 +226,8 @@ describe("lançar rodada", () => {
     );
     expect(erro.codigo).toBe("esgotado");
     expect(await contar("item_pedido")).toBe(antes);
-    expect(
-      await contar("comanda_mesa", `mesa_id = '${m.id}' and saiu_em is null`),
-    ).toBe(0);
+    // Nenhuma rodada fica gravada na comanda (a comanda continua aberta).
+    expect(await contar("rodada", `comanda_id = '${comandaId}'`)).toBe(0);
   });
 
   it("recusa modificador que não pertence ao produto", async () => {
@@ -215,7 +235,7 @@ describe("lançar rodada", () => {
     const agua = await produto("Água sem Gás");
     const bacon = await modificador("Bacon extra");
     const erro = await erroDe(
-      lancarRodada(garcomA, m.id, {
+      lancarNaMesa(garcomA, m.id, {
         idempotencyKey: chave(),
         itens: [
           { produtoId: agua.id, quantidade: 1, modificadorIds: [bacon.id] },
@@ -233,7 +253,7 @@ describe("lançar rodada", () => {
       .set({ disponivel: false })
       .where(eq(schema.produtos.id, pudim.id));
     const erro = await erroDe(
-      lancarRodada(garcomA, m.id, {
+      lancarNaMesa(garcomA, m.id, {
         idempotencyKey: chave(),
         itens: [{ produtoId: pudim.id, quantidade: 1, modificadorIds: [] }],
       }),

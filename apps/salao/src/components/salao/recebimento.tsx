@@ -86,12 +86,10 @@ type Linha = {
 // e como o cliente pagou (pode dividir; dinheiro calcula o troco). Usado na
 // gaveta do garçom e no painel do caixa.
 export const Recebimento = ({
-  mesaId,
   comanda,
   onPago,
   className,
 }: {
-  mesaId: string;
   comanda: Comanda;
   onPago: (resultado: ResultadoRecebimento) => void;
   className?: string;
@@ -191,7 +189,7 @@ export const Recebimento = ({
 
   const receber = useMutation({
     mutationFn: () =>
-      api<ResultadoRecebimento>(`/api/mesas/${mesaId}/fechar`, {
+      api<ResultadoRecebimento>(`/api/comandas/${comanda.id}/fechar`, {
         method: "POST",
         json: {
           taxaServico,

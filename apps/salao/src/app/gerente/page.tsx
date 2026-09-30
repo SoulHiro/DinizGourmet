@@ -13,6 +13,7 @@ import {
   GerenciaMesas,
 } from "./_components/cadastros";
 import { GerenciaCardapio } from "./_components/cardapio";
+import { GerenciaCartoes } from "./_components/cartoes";
 import { GerenciaDescontos, GerenciaEstoque } from "./_components/estoque";
 import { ResumoNoite } from "./_components/noite";
 import { PersonalizarPapel } from "./_components/papel";
@@ -23,6 +24,7 @@ const ABAS = [
   { valor: "cardapio", rotulo: "Cardápio" },
   { valor: "descontos", rotulo: "Descontos" },
   { valor: "mesas", rotulo: "Mesas" },
+  { valor: "cartoes", rotulo: "Cartões" },
   { valor: "equipe", rotulo: "Equipe" },
   { valor: "impressoras", rotulo: "Impressoras" },
   { valor: "papel", rotulo: "Papel" },
@@ -81,6 +83,7 @@ export default function GerentePage() {
         {aba === "cardapio" && <GerenciaCardapio />}
         {aba === "descontos" && <GerenciaDescontos />}
         {aba === "mesas" && <GerenciaMesas />}
+        {aba === "cartoes" && <GerenciaCartoes />}
         {aba === "equipe" && <GerenciaEquipe />}
         {aba === "impressoras" && <GerenciaImpressoras />}
         {aba === "papel" && <PersonalizarPapel />}

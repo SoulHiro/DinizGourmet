@@ -14,6 +14,10 @@ import { cn, formatBRL } from "@/lib/utils";
 
 export type ContaPublica = {
   mesa: number;
+  // Número do cartão da comanda (quando o cliente já foi identificado).
+  comanda: number | null;
+  // Mesa com várias comandas e o cliente ainda não disse qual é a dele.
+  precisaCartao: boolean;
   aberta: boolean;
   mesas: number[];
   itens: {
@@ -48,6 +52,9 @@ export const MinhaConta = ({
   pedidoConta,
   enviando,
   erro,
+  cartaoInvalido,
+  onInformarCartao,
+  onTrocarCartao,
 }: {
   aberta: boolean;
   onFechar: () => void;
@@ -57,7 +64,12 @@ export const MinhaConta = ({
   pedidoConta: (EscolhaConta & { aceito: boolean }) | undefined;
   enviando: boolean;
   erro?: string;
+  // Número digitado não bate com nenhuma comanda desta mesa.
+  cartaoInvalido?: boolean;
+  onInformarCartao: (numero: number) => void;
+  onTrocarCartao: () => void;
 }) => {
+  const [numeroCartao, setNumeroCartao] = useState("");
   const [taxaServico, setTaxaServico] = useState(true);
   const [gorjeta, setGorjeta] = useState("");
 
@@ -86,15 +98,67 @@ export const MinhaConta = ({
     <Drawer open={aberta} onOpenChange={(v) => !v && onFechar()}>
       <DrawerContent className="max-h-[92dvh]">
         <DrawerHeader className="text-left">
-          <DrawerTitle className="text-xl">Minha conta</DrawerTitle>
-          {conta?.aberta && conta.mesas.length > 1 && (
-            <p className="text-sm text-texto-secundario">
-              Mesas {conta.mesas.join(" + ")}
-            </p>
+          <DrawerTitle className="text-xl">
+            Minha conta{conta?.comanda ? ` · Cartão ${conta.comanda}` : ""}
+          </DrawerTitle>
+          {conta?.comanda && (
+            <button
+              type="button"
+              onClick={onTrocarCartao}
+              className="self-start text-sm text-texto-secundario underline"
+            >
+              Não é o seu cartão? Trocar
+            </button>
           )}
         </DrawerHeader>
 
-        <div className="flex-1 overflow-y-auto px-4">
+        {(conta?.precisaCartao || cartaoInvalido) && (
+          <form
+            className="flex flex-col gap-3 px-4 pb-6"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (numeroCartao) onInformarCartao(Number(numeroCartao));
+            }}
+          >
+            <p>
+              Esta mesa tem mais de uma comanda. Qual é o número do{" "}
+              <strong>seu cartão</strong>?
+            </p>
+            {cartaoInvalido && (
+              <p role="alert" className="text-destructive text-sm">
+                Não achamos esse cartão nesta mesa. Confira o número.
+              </p>
+            )}
+            <div className="flex gap-2">
+              <input
+                aria-label="Número do seu cartão"
+                inputMode="numeric"
+                placeholder="Nº do cartão"
+                value={numeroCartao}
+                onChange={(e) =>
+                  setNumeroCartao(e.target.value.replace(/\D/g, ""))
+                }
+                className="h-14 min-w-0 flex-1 rounded-xl bg-surface px-4 font-bold text-2xl ring-1 ring-borda"
+              />
+              <Button
+                type="submit"
+                variant="marca"
+                size="lg"
+                disabled={!numeroCartao}
+              >
+                Ver
+              </Button>
+            </div>
+            <p className="text-sm text-texto-secundario">
+              Dica: o QR code do seu cartão abre a sua conta direto.
+            </p>
+          </form>
+        )}
+
+        <div
+          className="flex-1 overflow-y-auto px-4"
+          hidden={Boolean(conta?.precisaCartao || cartaoInvalido)}
+        >
           {!temItens ? (
             <div className="flex flex-col items-center gap-2 py-10 text-center text-texto-secundario">
               <Receipt className="size-10 opacity-60" />
@@ -203,7 +267,10 @@ export const MinhaConta = ({
           )}
         </div>
 
-        <div className="flex flex-col gap-2 border-borda border-t p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        <div
+          className="flex flex-col gap-2 border-borda border-t p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
+          hidden={Boolean(conta?.precisaCartao || cartaoInvalido)}
+        >
           {temItens && (taxa > 0 || gorjetaCentavos > 0) && (
             <dl className="grid grid-cols-2 gap-y-0.5 text-sm text-texto-secundario">
               <dt>Consumo</dt>

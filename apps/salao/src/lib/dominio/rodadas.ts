@@ -1,17 +1,12 @@
 import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import { db, schema, type Tx } from "@/db";
+import { db, schema } from "@/db";
 import type { TicketItem, TicketPayload } from "@/db/schema";
 import type { Sessao } from "@/lib/auth/sessao";
-import { conflito, invalido, violouConstraint } from "@/lib/erros";
+import { conflito, invalido } from "@/lib/erros";
 import { acordarImpressao, type Escopo, notificar } from "@/lib/runtime";
-import {
-  buscarMesa,
-  comandaAbertaDaMesa,
-  mesasDaComanda,
-  registrarGarcom,
-} from "./comum";
+import { buscarComandaAberta, mesasDaComanda } from "./comum";
 import { aplicarConsumo, consumoDosItens } from "./estoque";
 
 export const lancarRodadaSchema = z.object({
@@ -52,41 +47,11 @@ const buscarPorChave = async (idempotencyKey: string) => {
   return rodada;
 };
 
-// Abre a comanda da mesa ou devolve a que já está aberta. Se outro garçom
-// abrir a mesma mesa no mesmo instante, o índice único parcial de
-// comanda_mesa barra um dos dois, e esse passa a usar a comanda do outro.
-const obterOuAbrirComanda = async (tx: Tx, sessao: Sessao, mesaId: string) => {
-  const existente = await comandaAbertaDaMesa(tx, mesaId);
-  if (existente) return { comanda: existente, abriu: false };
-
-  try {
-    const comanda = await tx.transaction(async (sp) => {
-      const [nova] = await sp
-        .insert(schema.comandas)
-        .values({
-          restauranteId: sessao.funcionario.restauranteId,
-          mesaPrincipalId: mesaId,
-          garcomTitularId: sessao.funcionario.id,
-        })
-        .returning();
-      await sp
-        .insert(schema.comandaMesas)
-        .values({ comandaId: nova.id, mesaId });
-      await registrarGarcom(sp, nova.id, sessao.funcionario.id, "titular");
-      return nova;
-    });
-    return { comanda, abriu: true };
-  } catch (error) {
-    if (!violouConstraint(error, "comanda_mesa_ativa_idx")) throw error;
-    const aberta = await comandaAbertaDaMesa(tx, mesaId);
-    if (!aberta) throw error;
-    return { comanda: aberta, abriu: false };
-  }
-};
-
+// Lança uma rodada numa comanda aberta (o cartão da pessoa). A comanda é
+// aberta antes, com o número do cartão (abrirComanda).
 export const lancarRodada = async (
   sessao: Sessao,
-  mesaId: string,
+  comandaId: string,
   input: LancarRodadaInput,
 ): Promise<ResultadoRodada> => {
   const { restauranteId } = sessao.funcionario;
@@ -105,8 +70,7 @@ export const lancarRodada = async (
 
   try {
     const resultado = await db().transaction(async (tx) => {
-      await buscarMesa(tx, restauranteId, mesaId);
-      const { comanda } = await obterOuAbrirComanda(tx, sessao, mesaId);
+      const comanda = await buscarComandaAberta(tx, restauranteId, comandaId);
 
       // Serializa lançamentos na mesma comanda para numerar as rodadas.
       await tx.execute(
@@ -250,7 +214,8 @@ export const lancarRodada = async (
         const produto = produtosPorId.get(item.produtoId);
         if (!produto) throw invalido("Produto inválido.");
 
-        const mesaOrigemId = item.mesaOrigemId ?? mesaId;
+        // A comanda está numa mesa por vez: é de lá que o item sai.
+        const mesaOrigemId = item.mesaOrigemId ?? mesas[0]?.id;
         const mesaOrigem = mesasPorId.get(mesaOrigemId);
         if (!mesaOrigem) {
           throw invalido(
@@ -319,6 +284,7 @@ export const lancarRodada = async (
       for (const [impressoraId, itens] of porImpressora) {
         const payload: TicketPayload = {
           mesas: mesas.map((m) => m.numero),
+          comanda: comanda.numero,
           garcom: sessao.funcionario.nome,
           rodada: rodada.numero,
           lancadaEm: rodada.lancadaEm.toISOString(),

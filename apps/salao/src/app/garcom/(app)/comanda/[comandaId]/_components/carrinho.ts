@@ -57,8 +57,8 @@ const aplicarChip = (ids: string[], chip: ChipInfo, preparoIds: string[]) => {
 // Carrinho da rodada em montagem. Fica no sessionStorage para sobreviver a
 // um recarregamento da página, junto com a idempotency key: se o garçom
 // reenviar depois de uma falha de rede, o servidor reconhece a mesma rodada.
-export const useCarrinho = (mesaId: string) => {
-  const chaveStorage = `carrinho:${mesaId}`;
+export const useCarrinho = (comandaId: string) => {
+  const chaveStorage = `carrinho:${comandaId}`;
   const [estado, setEstado] = useState<EstadoCarrinho>(() => ({
     idempotencyKey: novoUuid(),
     linhas: [],

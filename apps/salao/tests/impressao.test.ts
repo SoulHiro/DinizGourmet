@@ -7,7 +7,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { db, schema } from "@/db";
 import type { Sessao } from "@/lib/auth/sessao";
 import { salvarLayout } from "@/lib/dominio/layout-impressao";
-import { lancarRodada } from "@/lib/dominio/rodadas";
 import {
   criarDriverArquivo,
   type DriverImpressao,
@@ -16,7 +15,7 @@ import {
   processarProximo,
   recuperarInterrompidos,
 } from "@/lib/impressao/worker";
-import { chave, mesa, produto, sessaoDe } from "./helpers";
+import { chave, lancarNaMesa, mesa, produto, sessaoDe } from "./helpers";
 
 let garcom: Sessao;
 let pasta: string;
@@ -40,7 +39,7 @@ const statusDaRodada = async (rodadaId: string) => {
 const lancarXis = async (numeroMesa: number) => {
   const m = await mesa(numeroMesa);
   const xis = await produto("Xis Buenas - Clássico");
-  return lancarRodada(garcom, m.id, {
+  return lancarNaMesa(garcom, m.id, {
     idempotencyKey: chave(),
     itens: [
       {

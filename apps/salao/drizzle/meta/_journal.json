@@ -57,6 +57,13 @@
       "when": 1790451126380,
       "tag": "0007_layout_impressao",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790622036188,
+      "tag": "0008_comandas_por_cartao",
+      "breakpoints": true
     }
   ]
 }

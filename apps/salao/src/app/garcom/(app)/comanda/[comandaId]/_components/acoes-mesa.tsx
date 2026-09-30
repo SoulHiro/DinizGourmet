@@ -3,14 +3,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRightLeft,
-  Combine,
   DoorOpen,
   Hand,
   HandHeart,
   Loader2,
   MoreVertical,
   Printer,
-  Split,
 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -28,82 +26,60 @@ import {
 } from "@/components/ui/drawer";
 import { api } from "@/lib/cliente";
 import { useMapa } from "@/lib/consultas";
-import type { DetalheMesa } from "@/lib/dominio/mesas";
+import type { DetalheComanda } from "@/lib/dominio/mesas";
 import { cn, formatBRL } from "@/lib/utils";
 
-type Modo = "menu" | "juntar" | "transferir" | "fechar";
+type Modo = "menu" | "transferir" | "fechar";
 
-export const AcoesMesa = ({ detalhe }: { detalhe: DetalheMesa }) => {
+// Menu da comanda: ajuda (da mesa), imprimir a conta, trocar de mesa e
+// receber o pagamento.
+export const AcoesComanda = ({ detalhe }: { detalhe: DetalheComanda }) => {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { data: mapa } = useMapa();
   const [modo, setModo] = useState<Modo | null>(null);
-  const [selecionadas, setSelecionadas] = useState<string[]>([]);
+  const [destino, setDestino] = useState<string | null>(null);
   const eu = useFuncionario();
   const pathname = usePathname();
 
   const { mesa, comanda } = detalhe;
-  const principal =
-    !comanda || comanda.mesas.find((m) => m.principal)?.id === mesa.id;
-  const livres =
-    mapa?.filter((m) => m.status === "livre" && m.id !== mesa.id) ?? [];
-  const souDaMesa = comanda?.equipe.some((e) => e.id === eu.id) ?? false;
+  const titulo = comanda.numero
+    ? `Comanda ${comanda.numero}`
+    : `Mesa ${mesa.numero}`;
+  const outrasMesas = mapa?.filter((m) => m.id !== mesa.id) ?? [];
+  const souDaMesa = comanda.equipe.some((e) => e.id === eu.id);
 
   const fechar = () => {
     setModo(null);
-    setSelecionadas([]);
+    setDestino(null);
   };
 
   // Vindo do alerta "pediu a conta" (?receber), abre direto o pagamento.
   // biome-ignore lint/correctness/useExhaustiveDependencies: só ao montar a tela.
   useEffect(() => {
-    if (!comanda) return;
     if (new URLSearchParams(window.location.search).has("receber")) {
       setModo("fechar");
       router.replace(pathname);
     }
   }, []);
 
-  const acao = useMutation({
-    mutationFn: async (tipo: "juntar" | "transferir" | "separar") => {
-      const caminho = `/api/mesas/${mesa.id}/${tipo}`;
-      if (tipo === "juntar")
-        return api(caminho, {
-          method: "POST",
-          json: { mesaIds: selecionadas },
-        });
-      if (tipo === "transferir") {
-        return api(caminho, {
-          method: "POST",
-          json: { destinoMesaId: selecionadas[0] },
-        });
-      }
-      return api(caminho, { method: "POST" });
-    },
-    onSuccess: (_resultado, tipo) => {
-      queryClient.invalidateQueries({ queryKey: ["mesas"] });
-      const mensagens = {
-        juntar: "Mesas juntadas",
-        transferir: "Comanda transferida",
-        separar: `Mesa ${mesa.numero} separada`,
-      };
-      toast.success(mensagens[tipo]);
+  const atualizar = () =>
+    queryClient.invalidateQueries({ queryKey: ["mesas"] });
+
+  const transferir = useMutation({
+    mutationFn: () =>
+      api(`/api/comandas/${comanda.id}/transferir`, {
+        method: "POST",
+        json: { destinoMesaId: destino },
+      }),
+    onSuccess: () => {
+      const numero = mapa?.find((m) => m.id === destino)?.numero;
+      toast.success(`${titulo} agora está na mesa ${numero}`);
+      atualizar();
       fechar();
-      if (tipo === "transferir")
-        router.replace(`/garcom/mesa/${selecionadas[0]}`);
-      if (tipo === "separar") router.push("/garcom");
     },
     onError: (error) => toast.error(error.message),
   });
-
-  const alternar = (id: string, unica: boolean) =>
-    setSelecionadas((atual) =>
-      unica
-        ? [id]
-        : atual.includes(id)
-          ? atual.filter((x) => x !== id)
-          : [...atual, id],
-    );
 
   const pedirAjuda = useMutation({
     mutationFn: () =>
@@ -127,7 +103,7 @@ export const AcoesMesa = ({ detalhe }: { detalhe: DetalheMesa }) => {
     mutationFn: () => api(`/api/mesas/${mesa.id}/auxiliar`, { method: "POST" }),
     onSuccess: () => {
       toast.success(`Você entrou como auxiliar na mesa ${mesa.numero}`);
-      queryClient.invalidateQueries({ queryKey: ["mesas"] });
+      atualizar();
       fechar();
     },
     onError: (error) => toast.error(error.message),
@@ -136,7 +112,7 @@ export const AcoesMesa = ({ detalhe }: { detalhe: DetalheMesa }) => {
   // Conferência da conta, impressa no caixa (o cliente pediu para ver).
   const imprimir = useMutation({
     mutationFn: () =>
-      api(`/api/mesas/${mesa.id}/imprimir-conta`, { method: "POST" }),
+      api(`/api/comandas/${comanda.id}/imprimir-conta`, { method: "POST" }),
     onSuccess: () => {
       toast.success("Conta enviada para a impressora do caixa");
       fechar();
@@ -144,32 +120,11 @@ export const AcoesMesa = ({ detalhe }: { detalhe: DetalheMesa }) => {
     onError: (error) => toast.error(error.message),
   });
 
-  const opcoes = [
-    {
-      modo: "juntar" as const,
-      rotulo: "Juntar mesas",
-      icone: Combine,
-      visivel: principal,
-    },
-    {
-      modo: "transferir" as const,
-      rotulo: "Transferir para outra mesa",
-      icone: ArrowRightLeft,
-      visivel: Boolean(comanda) && principal,
-    },
-    {
-      modo: "fechar" as const,
-      rotulo: "Receber pagamento e fechar",
-      icone: DoorOpen,
-      visivel: Boolean(comanda),
-    },
-  ];
-
   return (
     <>
       <button
         type="button"
-        aria-label="Ações da mesa"
+        aria-label="Ações da comanda"
         onClick={() => setModo("menu")}
         className="flex size-12 items-center justify-center"
       >
@@ -183,10 +138,9 @@ export const AcoesMesa = ({ detalhe }: { detalhe: DetalheMesa }) => {
         <DrawerContent className={cn(modo === "fechar" && "h-[94dvh]")}>
           <DrawerHeader className="text-left">
             <DrawerTitle className="text-xl">
-              {modo === "juntar" && `Juntar com a mesa ${mesa.numero}`}
-              {modo === "transferir" && `Mover a mesa ${mesa.numero} para...`}
-              {modo === "fechar" && `Pagamento da mesa ${mesa.numero}`}
-              {modo === "menu" && `Mesa ${mesa.numero}`}
+              {modo === "transferir" && `Mover a ${titulo} para...`}
+              {modo === "fechar" && `Pagamento · ${titulo}`}
+              {modo === "menu" && `${titulo} · Mesa ${mesa.numero}`}
             </DrawerTitle>
           </DrawerHeader>
 
@@ -202,7 +156,7 @@ export const AcoesMesa = ({ detalhe }: { detalhe: DetalheMesa }) => {
                 >
                   <Hand /> Pedir ajuda a outro garçom
                 </Button>
-                {comanda && !souDaMesa && (
+                {!souDaMesa && (
                   <Button
                     size="lg"
                     className="justify-start"
@@ -212,100 +166,95 @@ export const AcoesMesa = ({ detalhe }: { detalhe: DetalheMesa }) => {
                     <HandHeart /> Ajudar nesta mesa (entrar como auxiliar)
                   </Button>
                 )}
-                {comanda && (
-                  <Button
-                    size="lg"
-                    className="justify-start"
-                    disabled={imprimir.isPending}
-                    onClick={() => imprimir.mutate()}
-                  >
-                    <Printer /> Imprimir conta (
-                    {formatBRL(comanda.totalCentavos)})
-                  </Button>
-                )}
-                {opcoes
-                  .filter((o) => o.visivel)
-                  .map((o) => (
-                    <Button
-                      key={o.modo}
-                      size="lg"
-                      className="justify-start"
-                      onClick={() => setModo(o.modo)}
-                    >
-                      <o.icone /> {o.rotulo}
-                    </Button>
-                  ))}
-                {comanda && !principal && (
-                  <Button
-                    size="lg"
-                    className="justify-start"
-                    onClick={() => acao.mutate("separar")}
-                  >
-                    <Split /> Separar esta mesa
-                  </Button>
-                )}
+                <Button
+                  size="lg"
+                  className="justify-start"
+                  disabled={imprimir.isPending}
+                  onClick={() => imprimir.mutate()}
+                >
+                  <Printer /> Imprimir conta ({formatBRL(comanda.totalCentavos)}
+                  )
+                </Button>
+                <Button
+                  size="lg"
+                  className="justify-start"
+                  onClick={() => setModo("transferir")}
+                >
+                  <ArrowRightLeft /> Trocar de mesa
+                </Button>
+                <Button
+                  size="lg"
+                  className="justify-start"
+                  onClick={() => setModo("fechar")}
+                >
+                  <DoorOpen /> Receber pagamento e fechar
+                </Button>
               </div>
             )}
 
-            {(modo === "juntar" || modo === "transferir") && (
+            {modo === "transferir" && (
               <>
-                {livres.length === 0 && (
-                  <p className="p-4 text-center text-texto-secundario">
-                    Nenhuma mesa livre.
-                  </p>
-                )}
+                <p className="mb-3 text-sm text-texto-secundario">
+                  Só esta comanda muda de lugar. A mesa de destino pode ter
+                  outras comandas.
+                </p>
                 <div className="grid grid-cols-4 gap-2">
-                  {livres.map((m) => (
+                  {outrasMesas.map((m) => (
                     <button
                       key={m.id}
                       type="button"
-                      aria-pressed={selecionadas.includes(m.id)}
-                      onClick={() => alternar(m.id, modo === "transferir")}
+                      aria-pressed={destino === m.id}
+                      onClick={() => setDestino(m.id)}
                       className={cn(
-                        "aspect-square rounded-lg border-2 font-bold text-2xl",
-                        selecionadas.includes(m.id)
+                        "flex aspect-square flex-col items-center justify-center rounded-lg border-2 font-bold text-2xl",
+                        destino === m.id
                           ? "border-status-ocupada bg-status-ocupada text-white"
-                          : "border-status-livre text-status-livre",
+                          : m.status === "livre"
+                            ? "border-status-livre text-status-livre"
+                            : "border-borda",
                       )}
                     >
                       {m.numero}
+                      {m.comandas.length > 0 && (
+                        <span className="font-normal text-xs">
+                          {m.comandas.length}{" "}
+                          {m.comandas.length === 1 ? "comanda" : "comandas"}
+                        </span>
+                      )}
                     </button>
                   ))}
                 </div>
               </>
             )}
 
-            {modo === "fechar" && comanda && (
+            {modo === "fechar" && (
               <Recebimento
-                mesaId={mesa.id}
                 comanda={comanda}
                 onPago={(r) => {
                   toast.success(
                     r.trocoCentavos > 0
                       ? `Conta paga. Troco: ${formatBRL(r.trocoCentavos)}`
-                      : `Conta paga, mesa ${mesa.numero} liberada`,
+                      : `${titulo} paga`,
                   );
                   fechar();
-                  router.push("/garcom");
+                  router.push(`/garcom/mesa/${mesa.id}`);
                 }}
               />
             )}
           </div>
 
-          {(modo === "juntar" || modo === "transferir") && (
+          {modo === "transferir" && (
             <DrawerFooter>
               <Button
                 variant="acao"
                 size="lg"
-                disabled={acao.isPending || selecionadas.length === 0}
-                onClick={() => acao.mutate(modo)}
+                disabled={transferir.isPending || !destino}
+                onClick={() => transferir.mutate()}
               >
-                {acao.isPending ? (
+                {transferir.isPending ? (
                   <Loader2 className="animate-spin" />
-                ) : modo === "juntar" ? (
-                  "Juntar"
                 ) : (
-                  "Transferir"
+                  "Trocar de mesa"
                 )}
               </Button>
             </DrawerFooter>

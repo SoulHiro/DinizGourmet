@@ -56,7 +56,11 @@ const SECOES: { titulo: string; conteudo: React.ReactNode }[] = [
     titulo: "Lançar um pedido rápido",
     conteudo: (
       <ol className="flex list-decimal flex-col gap-2 pl-5">
-        <li>Toque na mesa.</li>
+        <li>
+          Toque na mesa e abra a <strong>comanda</strong> com o número do cartão
+          (ou passe o leitor). Já tem comanda? Toque nela. Atalho: no topo do
+          mapa, digite o número do cartão.
+        </li>
         <li>
           Ache o item pela <strong>busca</strong>: digite 2 ou 3 letras do nome
           ou o <strong>número</strong> do item (ex.: <em>5</em>).
@@ -104,14 +108,15 @@ const SECOES: { titulo: string; conteudo: React.ReactNode }[] = [
     ),
   },
   {
-    titulo: "Juntar mesas",
+    titulo: "Grupo que paga separado (cartões)",
     conteudo: (
       <p>
-        No mapa, <strong>segure uma mesa</strong> por meio segundo até ela ficar
-        marcada, toque nas outras e depois em <strong>Juntar</strong>. As mesas
-        viram um bloco só, mas cada item continua sabendo de qual mesa veio
-        (para dividir a conta depois). Também dá pelo menu <strong>⋮</strong>{" "}
-        dentro da mesa.
+        Cada pessoa ou casal que vai pagar o seu recebe um{" "}
+        <strong>cartão</strong>. Na mesa, abra uma comanda para cada cartão
+        (quantas quiser na mesma mesa) e lance cada pedido na comanda de quem
+        pediu. Na hora de pagar, cada comanda fecha sozinha; a mesa só fica
+        livre quando a última for paga. Não precisa juntar mesas: um grupo
+        espalhado em duas mesas usa os cartões do mesmo jeito.
       </p>
     ),
   },
@@ -145,18 +150,19 @@ const SECOES: { titulo: string; conteudo: React.ReactNode }[] = [
     ),
   },
   {
-    titulo: "Trocar de lugar e fechar a mesa",
+    titulo: "Trocar de lugar e receber",
     conteudo: (
       <p>
-        Menu <strong>⋮ → Transferir</strong> leva a comanda inteira para outra
-        mesa livre. <strong>Receber pagamento e fechar</strong> mostra quanto
-        cobrar na maquininha. Cliente não quis a taxa de serviço? Desligue e
-        toque no <strong>motivo</strong> (obrigatório). Desconto: só os da lista
-        (valor livre é com o gerente ou o caixa). Informe a{" "}
-        <strong>gorjeta</strong>, toque na <strong>forma de pagamento</strong>{" "}
-        (mais de uma para dividir; no dinheiro, informe quanto o cliente deu e
-        aparece o troco) e em <strong>Conta paga</strong>: as mesas ficam
-        livres, e taxa e gorjeta são divididas entre os garçons da mesa na
+        Na comanda, menu <strong>⋮ → Trocar de mesa</strong> leva só aquela
+        comanda para outra mesa (mesmo ocupada).{" "}
+        <strong>Receber pagamento e fechar</strong> mostra quanto cobrar na
+        maquininha. Cliente não quis a taxa de serviço? Desligue e toque no{" "}
+        <strong>motivo</strong> (obrigatório). Desconto: só os da lista (valor
+        livre é com o gerente ou o caixa). Informe a <strong>gorjeta</strong>,
+        toque na <strong>forma de pagamento</strong> (mais de uma para dividir;
+        no dinheiro, informe quanto o cliente deu e aparece o troco) e em{" "}
+        <strong>Conta paga</strong>: a comanda fecha e o cartão volta para o
+        monte. Taxa e gorjeta são divididas entre os garçons da comanda na
         proporção do que cada um lançou. O cliente quer conferir antes? Menu{" "}
         <strong>⋮ → Imprimir conta</strong> (sai no caixa).
       </p>

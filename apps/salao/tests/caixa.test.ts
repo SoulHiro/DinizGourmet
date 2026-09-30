@@ -10,11 +10,17 @@ import {
   resumoCaixa,
 } from "@/lib/dominio/caixa";
 import { cancelarItem } from "@/lib/dominio/cancelamento";
-import { fecharComanda } from "@/lib/dominio/mesas";
 import { conferirPagamentos } from "@/lib/dominio/pagamento";
-import { lancarRodada } from "@/lib/dominio/rodadas";
 import { montarLinhas, renderizarTexto } from "@/lib/impressao/ticket";
-import { chave, mesa, produto, sessaoDe } from "./helpers";
+import {
+  chave,
+  comandaAbertaNa,
+  fecharNaMesa,
+  lancarNaMesa,
+  mesa,
+  produto,
+  sessaoDe,
+} from "./helpers";
 
 let garcomA: Sessao;
 let caixa: Sessao;
@@ -29,7 +35,7 @@ beforeAll(async () => {
 const lancar = async (numeroMesa: number, nome: string, quantidade = 1) => {
   const m = await mesa(numeroMesa);
   const p = await produto(nome);
-  return lancarRodada(garcomA, m.id, {
+  return lancarNaMesa(garcomA, m.id, {
     idempotencyKey: chave(),
     itens: [{ produtoId: p.id, quantidade, modificadorIds: [] }],
   });
@@ -68,7 +74,7 @@ describe("pagamento", () => {
   it("conta dividida entre dinheiro e cartão, com troco", async () => {
     await lancar(1, "Xis Buenas - Clássico", 2); // 79,80
     const m1 = await mesa(1);
-    const r = await fecharComanda(caixa, m1.id, {
+    const r = await fecharNaMesa(caixa, m1.id, {
       taxaServico: true, // 10% = 7,98 -> total 87,78
       pagamentos: [
         { metodo: "dinheiro", valorCentavos: 5000, recebidoCentavos: 10000 },
@@ -95,12 +101,12 @@ describe("pagamento", () => {
     await lancar(2, "Xis Buenas - Clássico"); // 39,90 + 3,99
     const m2 = await mesa(2);
     await expect(
-      fecharComanda(caixa, m2.id, {
+      fecharNaMesa(caixa, m2.id, {
         pagamentos: [{ metodo: "pix", valorCentavos: 3990 }],
       }),
     ).rejects.toMatchObject({ codigo: "pagamento_nao_fecha" });
     await expect(
-      fecharComanda(caixa, m2.id, {
+      fecharNaMesa(caixa, m2.id, {
         pagamentos: [
           { metodo: "dinheiro", valorCentavos: 4389, recebidoCentavos: 2000 },
         ],
@@ -116,7 +122,7 @@ describe("pagamento", () => {
         ),
       );
     expect(aberta).toBeDefined();
-    await fecharComanda(caixa, m2.id, {
+    await fecharNaMesa(caixa, m2.id, {
       pagamentos: [{ metodo: "pix", valorCentavos: 4389 }],
     });
   });
@@ -133,14 +139,18 @@ describe("conta impressa", () => {
     await impressoraCaixa(false);
     await lancar(3, "Xis Bagual - O Bruto da Casa");
     await expect(
-      imprimirConta(garcomA, { mesaId: (await mesa(3)).id }),
+      imprimirConta(garcomA, {
+        comandaId: await comandaAbertaNa((await mesa(3)).id),
+      }),
     ).rejects.toMatchObject({ codigo: "sem_impressora_caixa" });
   });
 
   it("pré-conta mostra a taxa como opcional; o comprovante mostra o troco", async () => {
     await impressoraCaixa(true);
     const m3 = await mesa(3);
-    const pre = await imprimirConta(garcomA, { mesaId: m3.id });
+    const pre = await imprimirConta(garcomA, {
+      comandaId: await comandaAbertaNa(m3.id),
+    });
     const textoPre = await textoDoTrabalho(pre.trabalhoId);
     expect(textoPre).toContain("CONFERENCIA DE CONTA");
     expect(textoPre).toContain("MESA 3");
@@ -149,7 +159,7 @@ describe("conta impressa", () => {
     expect(textoPre).toMatch(/Total sem taxa\s+R\$ 59,90/);
     expect(textoPre).toContain("Nao e documento fiscal");
 
-    const r = await fecharComanda(caixa, m3.id, {
+    const r = await fecharNaMesa(caixa, m3.id, {
       taxaServico: true,
       pagamentos: [
         { metodo: "dinheiro", valorCentavos: 6589, recebidoCentavos: 7000 },
@@ -176,7 +186,7 @@ describe("histórico e resumo do caixa", () => {
       preparoIniciado: false,
     });
     const m4 = await mesa(4);
-    const fechada = await fecharComanda(caixa, m4.id, {
+    const fechada = await fecharNaMesa(caixa, m4.id, {
       taxaServico: false,
       semTaxaMotivo: "demora_preparo",
       pagamentos: [{ metodo: "credito", valorCentavos: 4490 }],

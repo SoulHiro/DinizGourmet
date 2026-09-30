@@ -14,9 +14,16 @@ import {
   listarInsumos,
   valorDoDesconto,
 } from "@/lib/dominio/insumos";
-import { fecharComanda, fecharMesaSchema } from "@/lib/dominio/mesas";
-import { lancarRodada } from "@/lib/dominio/rodadas";
-import { chave, mesa, modificador, produto, sessaoDe } from "./helpers";
+import { fecharMesaSchema } from "@/lib/dominio/mesas";
+import {
+  chave,
+  fecharNaMesa,
+  lancarNaMesa,
+  mesa,
+  modificador,
+  produto,
+  sessaoDe,
+} from "./helpers";
 
 let garcomA: Sessao;
 let garcomB: Sessao;
@@ -52,7 +59,7 @@ const lancar = async (
 ) => {
   const m = await mesa(numeroMesa);
   const p = await produto(nome);
-  return lancarRodada(sessao, m.id, {
+  return lancarNaMesa(sessao, m.id, {
     idempotencyKey: chave(),
     itens: [{ produtoId: p.id, quantidade, modificadorIds }],
   });
@@ -203,7 +210,7 @@ describe("desconto e taxa não cobrada", () => {
     });
     await lancar(garcomA, 9, "Xis Bagual - O Bruto da Casa", 2); // 119,80
     const m9 = await mesa(9);
-    const r = await fecharComanda(garcomA, m9.id, {
+    const r = await fecharNaMesa(garcomA, m9.id, {
       taxaServico: true,
       descontoId: aniversario.id,
     });
@@ -217,9 +224,9 @@ describe("desconto e taxa não cobrada", () => {
     await lancar(garcomA, 10, "Xis Buenas - Clássico");
     const m10 = await mesa(10);
     await expect(
-      fecharComanda(garcomA, m10.id, { descontoCentavos: 500 }),
+      fecharNaMesa(garcomA, m10.id, { descontoCentavos: 500 }),
     ).rejects.toMatchObject({ status: 403 });
-    const r = await fecharComanda(gerente, m10.id, { descontoCentavos: 500 });
+    const r = await fecharNaMesa(gerente, m10.id, { descontoCentavos: 500 });
     expect(r.descontoCentavos).toBe(500);
   });
 
@@ -243,12 +250,12 @@ describe("desconto e taxa não cobrada", () => {
 
   it("relatório mostra taxa não cobrada por motivo e por garçom", async () => {
     await lancar(garcomB, 11, "Xis Buenas - Clássico");
-    await fecharComanda(garcomB, (await mesa(11)).id, {
+    await fecharNaMesa(garcomB, (await mesa(11)).id, {
       taxaServico: false,
       semTaxaMotivo: "demora_preparo",
     });
     await lancar(garcomB, 12, "Xis Buenas - Clássico");
-    await fecharComanda(garcomB, (await mesa(12)).id, {
+    await fecharNaMesa(garcomB, (await mesa(12)).id, {
       taxaServico: false,
       semTaxaMotivo: "outro",
       semTaxaObservacao: "Mesa de amigos do dono",
