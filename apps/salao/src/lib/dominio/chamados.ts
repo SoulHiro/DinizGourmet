@@ -1,4 +1,4 @@
-import { and, asc, eq, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import { db, schema } from "@/db";
@@ -10,7 +10,12 @@ import {
   violouConstraint,
 } from "@/lib/erros";
 import { notificar } from "@/lib/runtime";
-import { comandaAbertaDaMesa, configTaxa, subtotalDaComanda } from "./comum";
+import {
+  comandaDoCliente,
+  type Identificacao,
+  mesaAtivaPorToken,
+} from "./cliente";
+import { comandasAbertasDaMesa, configTaxa, subtotalDaComanda } from "./comum";
 import { calcularTaxa } from "./taxa";
 
 export type TipoChamado = "garcom" | "conta";
@@ -29,33 +34,33 @@ export type Chamado = {
   tipo: TipoChamado;
   mesaId: string;
   mesaNumero: number;
+  // Pedido de conta é de uma comanda (cartão); chamar garçom é da mesa.
+  comandaId: string | null;
+  comandaNumero: number | null;
   criadoEm: string;
   aceitoPor: string | null;
   aceitoPorId: string | null;
   escalado: boolean;
-  // Garçons da comanda atual da mesa (titular + auxiliares). O pedido de
-  // conta vai só para eles; sem resposta, escala para o gerente.
+  // Garçons que atendem (titular + auxiliares): da comanda, no pedido de
+  // conta; de todas as comandas da mesa, no chamar garçom. O pedido de conta
+  // vai só para eles; sem resposta, escala para o gerente.
   garconsDaMesa: string[];
   // Só no pedido de conta: o que o cliente escolheu e quanto vai dar.
   conta: ResumoConta | null;
 };
 
-const mesaPorToken = async (token: string) => {
-  const [mesa] = await db()
-    .select()
-    .from(schema.mesas)
-    .where(and(eq(schema.mesas.tokenQr, token), eq(schema.mesas.ativa, true)))
-    .limit(1);
-  if (!mesa) throw naoEncontrado("Mesa");
-  return mesa;
-};
-
-// Página pública do QR: o que o cliente vê da própria mesa.
-export const statusPublico = async (token: string) => {
-  const mesa = await mesaPorToken(token);
+// Página pública do QR: chamados da mesa e o pedido de conta da comanda do
+// cliente (se ele já se identificou, ou se a mesa tem uma comanda só).
+export const statusPublico = async (
+  token: string,
+  ident: Identificacao = {},
+) => {
+  const mesa = await mesaAtivaPorToken(token);
+  const { comanda, precisaCartao } = await comandaDoCliente(mesa, ident);
   const abertos = await db()
     .select({
       tipo: schema.chamados.tipo,
+      comandaId: schema.chamados.comandaId,
       aceito: isNotNull(schema.chamados.aceitoPor),
       taxaServico: schema.chamados.taxaServico,
       gorjetaCentavos: schema.chamados.gorjetaCentavos,
@@ -69,29 +74,46 @@ export const statusPublico = async (token: string) => {
     );
   return {
     mesa: mesa.numero,
-    chamados: abertos.map((c) => ({
-      tipo: c.tipo,
-      aceito: Boolean(c.aceito),
-      taxaServico: c.taxaServico ?? true,
-      gorjetaCentavos: c.gorjetaCentavos ?? 0,
-    })),
+    comanda: comanda?.numero ?? null,
+    precisaCartao,
+    chamados: abertos
+      // Pedido de conta de outra comanda da mesa não é da conta deste cliente.
+      .filter((c) => c.tipo === "garcom" || c.comandaId === comanda?.id)
+      .map((c) => ({
+        tipo: c.tipo,
+        aceito: Boolean(c.aceito),
+        taxaServico: c.taxaServico ?? true,
+        gorjetaCentavos: c.gorjetaCentavos ?? 0,
+      })),
   };
 };
 
 export type OpcoesConta = { taxaServico: boolean; gorjetaCentavos: number };
 
-// Cliente aperta o botão (quantas vezes quiser: só existe 1 chamado aberto
-// por tipo e mesa, garantido pelo índice único). No pedido de conta, se ele
-// mudar a taxa ou a gorjeta antes de pagar, o pedido aberto é atualizado.
+// Cliente aperta o botão (quantas vezes quiser: só existe um "chamar
+// garçom" aberto por mesa e um pedido de conta aberto por comanda, garantido
+// pelos índices únicos). No pedido de conta, se ele mudar a taxa ou a
+// gorjeta antes de pagar, o pedido aberto é atualizado.
 export const chamarPeloQr = async (
   token: string,
   tipo: TipoChamado,
   opcoes?: OpcoesConta,
+  ident: Identificacao = {},
 ) => {
-  const mesa = await mesaPorToken(token);
-  const comanda = await comandaAbertaDaMesa(db(), mesa.id);
-  if (tipo === "conta" && !comanda) {
-    throw conflito("sem_conta", "Ainda não há pedidos nesta mesa.");
+  const mesa = await mesaAtivaPorToken(token);
+  let comandaId: string | null = null;
+  if (tipo === "conta") {
+    const { comanda, precisaCartao } = await comandaDoCliente(mesa, ident);
+    if (precisaCartao) {
+      throw conflito(
+        "informe_cartao",
+        "Digite o número do seu cartão de comanda.",
+      );
+    }
+    if (!comanda) {
+      throw conflito("sem_conta", "Ainda não há pedidos nesta mesa.");
+    }
+    comandaId = comanda.id;
   }
   const escolha =
     tipo === "conta"
@@ -106,21 +128,26 @@ export const chamarPeloQr = async (
       .values({
         restauranteId: mesa.restauranteId,
         mesaId: mesa.id,
-        comandaId: comanda?.id ?? null,
+        comandaId,
         tipo,
         ...escolha,
       });
     notificar(mesa.restauranteId, ["chamados", "mesas"]);
     return { jaExistia: false };
   } catch (error) {
-    if (!violouConstraint(error, "chamado_mesa_aberto_idx")) throw error;
-    if (tipo === "conta") {
+    if (
+      !violouConstraint(error, "chamado_garcom_aberto_idx") &&
+      !violouConstraint(error, "chamado_conta_aberto_idx")
+    ) {
+      throw error;
+    }
+    if (tipo === "conta" && comandaId) {
       await db()
         .update(schema.chamados)
         .set(escolha)
         .where(
           and(
-            eq(schema.chamados.mesaId, mesa.id),
+            eq(schema.chamados.comandaId, comandaId),
             eq(schema.chamados.tipo, "conta"),
             isNull(schema.chamados.encerradoEm),
           ),
@@ -141,6 +168,8 @@ export const listarChamados = async (
       tipo: schema.chamados.tipo,
       mesaId: schema.chamados.mesaId,
       mesaNumero: schema.mesas.numero,
+      comandaId: schema.chamados.comandaId,
+      comandaNumero: schema.comandas.numero,
       criadoEm: schema.chamados.criadoEm,
       aceitoPor: atendente.nome,
       aceitoPorId: schema.chamados.aceitoPor,
@@ -150,6 +179,10 @@ export const listarChamados = async (
     })
     .from(schema.chamados)
     .innerJoin(schema.mesas, eq(schema.mesas.id, schema.chamados.mesaId))
+    .leftJoin(
+      schema.comandas,
+      eq(schema.comandas.id, schema.chamados.comandaId),
+    )
     .leftJoin(atendente, eq(atendente.id, schema.chamados.aceitoPor))
     .where(
       and(
@@ -164,17 +197,22 @@ export const listarChamados = async (
   const config = await configTaxa(db(), restauranteId);
   return Promise.all(
     linhas.map(async (l) => {
-      // Comanda atual da mesa (pode ter sido aberta ou juntada depois do chamado).
-      const comanda = await comandaAbertaDaMesa(db(), l.mesaId);
-      const equipe = comanda
+      // Conta: a comanda do chamado. Garçom: todas as comandas da mesa.
+      const comandaIds =
+        l.tipo === "conta"
+          ? l.comandaId
+            ? [l.comandaId]
+            : []
+          : (await comandasAbertasDaMesa(db(), l.mesaId)).map((c) => c.id);
+      const equipe = comandaIds.length
         ? await db()
-            .select({ id: schema.comandaGarcons.funcionarioId })
+            .selectDistinct({ id: schema.comandaGarcons.funcionarioId })
             .from(schema.comandaGarcons)
-            .where(eq(schema.comandaGarcons.comandaId, comanda.id))
+            .where(inArray(schema.comandaGarcons.comandaId, comandaIds))
         : [];
       let conta: ResumoConta | null = null;
-      if (l.tipo === "conta" && comanda) {
-        const subtotal = await subtotalDaComanda(db(), comanda.id);
+      if (l.tipo === "conta" && l.comandaId) {
+        const subtotal = await subtotalDaComanda(db(), l.comandaId);
         const taxa = calcularTaxa(subtotal, config);
         const taxaServico = l.taxaServico ?? true;
         const taxaCentavos = taxaServico ? taxa.valorCentavos : 0;
@@ -193,6 +231,8 @@ export const listarChamados = async (
         tipo: l.tipo,
         mesaId: l.mesaId,
         mesaNumero: l.mesaNumero,
+        comandaId: l.comandaId,
+        comandaNumero: l.comandaNumero,
         criadoEm: l.criadoEm.toISOString(),
         aceitoPor: l.aceitoPor,
         aceitoPorId: l.aceitoPorId,

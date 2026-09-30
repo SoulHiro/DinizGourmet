@@ -19,27 +19,27 @@ import {
 } from "@/components/salao/recebimento";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/cliente";
-import { useDetalheMesa } from "@/lib/consultas";
+import { useDetalheComanda } from "@/lib/consultas";
 import { formatarDuracao, minutosDesde, useAgora } from "@/lib/tempo";
 import { formatBRL } from "@/lib/utils";
 
 // Conta da mesa no caixa: o que foi consumido, imprimir para o cliente
 // conferir, receber o pagamento e imprimir o comprovante.
 export const PainelConta = ({
-  mesaId,
+  comandaId,
   onFechar,
 }: {
-  mesaId: string;
+  comandaId: string;
   onFechar: () => void;
 }) => {
-  const { data, isLoading } = useDetalheMesa(mesaId);
+  const { data, isLoading, error } = useDetalheComanda(comandaId);
   const agora = useAgora(30_000);
   const [recebendo, setRecebendo] = useState(false);
   const [pago, setPago] = useState<ResultadoRecebimento | null>(null);
 
   const imprimirConta = useMutation({
     mutationFn: () =>
-      api(`/api/mesas/${mesaId}/imprimir-conta`, { method: "POST" }),
+      api(`/api/comandas/${comandaId}/imprimir-conta`, { method: "POST" }),
     onSuccess: () => toast.success("Conta enviada para a impressora"),
     onError: (e) => toast.error(e.message),
   });
@@ -100,6 +100,12 @@ export const PainelConta = ({
     );
   }
 
+  if (error) {
+    return moldura(
+      <p className="py-6 text-center text-texto-secundario">{error.message}</p>,
+      "Comanda",
+    );
+  }
   if (isLoading || !data) {
     return moldura(
       <Loader2 className="mx-auto size-8 animate-spin text-texto-secundario" />,
@@ -108,16 +114,9 @@ export const PainelConta = ({
   }
 
   const { mesa, comanda } = data;
-  if (!comanda) {
-    return moldura(
-      <p className="py-6 text-center text-texto-secundario">
-        Mesa livre, sem conta aberta.
-      </p>,
-      `Mesa ${mesa.numero}`,
-    );
-  }
-
-  const titulo = `Mesa ${comanda.mesas.map((m) => m.numero).join(" + ")}`;
+  const titulo = comanda.numero
+    ? `Comanda ${comanda.numero} · Mesa ${mesa.numero}`
+    : `Mesa ${mesa.numero}`;
 
   if (recebendo) {
     return moldura(
@@ -130,7 +129,6 @@ export const PainelConta = ({
           Voltar para a conta
         </button>
         <Recebimento
-          mesaId={mesa.id}
           comanda={comanda}
           onPago={(r) => {
             setRecebendo(false);
@@ -246,7 +244,7 @@ export const PainelConta = ({
             <Printer /> Imprimir conta
           </Button>
           <Link
-            href={`/garcom/mesa/${mesa.id}`}
+            href={`/garcom/comanda/${comanda.id}`}
             className="flex h-12 items-center justify-center gap-2 rounded-lg border border-borda bg-surface font-semibold"
           >
             <ExternalLink className="size-4" /> Abrir mesa

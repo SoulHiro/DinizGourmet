@@ -22,7 +22,7 @@ describe("layout do ticket", () => {
       destaque: true,
       tamanho: "grande",
       negrito: true,
-      texto: " MESA 5 (+6) ",
+      texto: " MESA 5 ",
     });
     expect(texto(linhas)).toContain("2x XIS BAH TCHÊ! - BACON");
     expect(texto(linhas)).not.toContain("2 - XIS");
@@ -73,8 +73,11 @@ describe("layout do ticket", () => {
     expect(saida).toContain("2x 2 - Xis Bah Tchê! - Bacon");
     expect(saida).not.toContain("BAR");
     expect(saida).not.toContain("Rodada");
-    // Itens antes da mesa, como foi pedido; mesa sem prefixo.
-    expect(saida.indexOf("Xis Bah")).toBeLessThan(saida.indexOf("5 (+6)"));
+    // Itens antes da mesa, como foi pedido; mesa sem prefixo (linha "5").
+    const linhaDaMesa = linhas.lastIndexOf("5");
+    expect(linhaDaMesa).toBeGreaterThan(
+      linhas.findIndex((l) => l.includes("Xis Bah")),
+    );
   });
 
   it("cancelamento mantém o aviso fixo no topo, qualquer que seja o layout", () => {

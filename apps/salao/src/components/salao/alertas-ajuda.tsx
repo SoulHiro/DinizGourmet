@@ -136,7 +136,11 @@ export const AlertasAjuda = () => {
 
   // Abre a mesa já no pagamento, com a escolha do cliente preenchida.
   const receber = (c: Chamado) =>
-    router.push(`/garcom/mesa/${c.mesaId}?receber=1`);
+    router.push(
+      c.comandaId
+        ? `/garcom/comanda/${c.comandaId}?receber=1`
+        : `/garcom/mesa/${c.mesaId}`,
+    );
 
   const concluir = useMutation({
     mutationFn: (c: Chamado) =>
@@ -187,8 +191,9 @@ export const AlertasAjuda = () => {
               <Icone className="size-7 shrink-0" />
               <div className="min-w-0 flex-1 leading-tight">
                 <p className="font-bold">
-                  Mesa {c.mesaNumero}{" "}
-                  {c.tipo === "conta" ? "pediu a conta" : "chamou o garçom"}
+                  {c.tipo === "conta" && c.comandaNumero
+                    ? `Comanda ${c.comandaNumero} (mesa ${c.mesaNumero}) pediu a conta`
+                    : `Mesa ${c.mesaNumero} ${c.tipo === "conta" ? "pediu a conta" : "chamou o garçom"}`}
                 </p>
                 {c.conta && (
                   <p className="font-semibold text-sm">
@@ -295,7 +300,7 @@ export const AlertasAjuda = () => {
           )}
           <p className="min-w-0 flex-1 font-semibold leading-tight">
             {c.tipo === "conta"
-              ? `Conta da mesa ${c.mesaNumero}${c.conta ? `: ${formatBRL(c.conta.totalCentavos)}` : ""}`
+              ? `Conta da ${c.comandaNumero ? `comanda ${c.comandaNumero}` : `mesa ${c.mesaNumero}`}${c.conta ? `: ${formatBRL(c.conta.totalCentavos)}` : ""}`
               : `Atendendo a mesa ${c.mesaNumero}`}
           </p>
           {c.tipo === "conta" ? (

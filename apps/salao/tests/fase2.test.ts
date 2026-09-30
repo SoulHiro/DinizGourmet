@@ -19,10 +19,17 @@ import {
 } from "@/lib/dominio/chamados";
 import { resumoNoite } from "@/lib/dominio/gerencia";
 import { dividirGorjeta } from "@/lib/dominio/gorjeta";
-import { detalharMesa, fecharComanda, listarMapa } from "@/lib/dominio/mesas";
-import { lancarRodada } from "@/lib/dominio/rodadas";
+import { listarMapa } from "@/lib/dominio/mesas";
 import { calcularTaxa } from "@/lib/dominio/taxa";
-import { chave, mesa, produto, sessaoDe } from "./helpers";
+import {
+  chave,
+  detalheDaMesa,
+  fecharNaMesa,
+  lancarNaMesa,
+  mesa,
+  produto,
+  sessaoDe,
+} from "./helpers";
 
 let garcomA: Sessao;
 let garcomB: Sessao;
@@ -42,7 +49,7 @@ const lancar = async (
 ) => {
   const m = await mesa(numeroMesa);
   const p = await produto(nome);
-  return lancarRodada(sessao, m.id, {
+  return lancarNaMesa(sessao, m.id, {
     idempotencyKey: chave(),
     itens: [{ produtoId: p.id, quantidade, modificadorIds: [] }],
   });
@@ -101,7 +108,7 @@ describe("auxílio entre garçons", () => {
     await aceitarAjuda(garcomB, id);
     await lancar(garcomB, 1, "Xis Buenas - Clássico"); // 39,90 do B
 
-    const detalhe = await detalharMesa(
+    const detalhe = await detalheDaMesa(
       garcomA.funcionario.restauranteId,
       m1.id,
     );
@@ -112,7 +119,7 @@ describe("auxílio entre garçons", () => {
       ["Garçom B", "auxiliar", 3990],
     ]);
 
-    const { divisao } = await fecharComanda(garcomA, m1.id, {
+    const { divisao } = await fecharNaMesa(garcomA, m1.id, {
       gorjetaCentavos: 1397,
     });
     // 1397 * 99,80/139,70 = 998 ; 1397 * 39,90/139,70 = 399
@@ -231,7 +238,7 @@ describe("chamados do cliente pelo QR", () => {
     await lancar(garcomA, 9, "Pudim");
     const m9 = await mesa(9);
     await chamarPeloQr(m9.tokenQr, "conta");
-    await fecharComanda(garcomA, m9.id);
+    await fecharNaMesa(garcomA, m9.id);
     const [aberto] = await db()
       .select()
       .from(schema.chamados)
@@ -295,7 +302,7 @@ describe("taxa de serviço e pagamento", () => {
       gorjetaCentavos: 1000,
     });
     expect((await doMapa())?.conta?.taxaCentavos).toBe(0);
-    const detalhe = await detalharMesa(
+    const detalhe = await detalheDaMesa(
       garcomA.funcionario.restauranteId,
       m10.id,
     );
@@ -314,7 +321,7 @@ describe("taxa de serviço e pagamento", () => {
       };
     };
     const antes = await taxaDoB();
-    const pago = await fecharComanda(garcomA, m10.id, {
+    const pago = await fecharNaMesa(garcomA, m10.id, {
       taxaServico: true,
       gorjetaCentavos: 1000,
     });
@@ -338,12 +345,12 @@ describe("taxa de serviço e pagamento", () => {
   it("acima do limite a taxa cai para 5%; sem taxa, nada é repassado", async () => {
     await lancar(garcomA, 11, "Xis Bah Tchê! - Bacon", 10); // 499,00
     const m11 = await mesa(11);
-    const detalhe = await detalharMesa(
+    const detalhe = await detalheDaMesa(
       garcomA.funcionario.restauranteId,
       m11.id,
     );
     expect(detalhe.comanda?.taxa).toEqual({ pct: 5, valorCentavos: 2495 });
-    const pago = await fecharComanda(garcomA, m11.id, { taxaServico: false });
+    const pago = await fecharNaMesa(garcomA, m11.id, { taxaServico: false });
     expect(pago.taxaCentavos).toBe(0);
     expect(pago.divisaoTaxa).toEqual([]);
   });

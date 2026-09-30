@@ -13,8 +13,9 @@ import {
 import { notificar } from "@/lib/runtime";
 import { formatBRL } from "@/lib/utils";
 import {
+  buscarComandaAberta,
   buscarMesa,
-  comandaAbertaDaMesa,
+  comandasAbertasDaMesa,
   configTaxa,
   mesasDaComanda,
   registrarGarcom,
@@ -24,8 +25,8 @@ import { dividirGorjeta } from "./gorjeta";
 import { conferirPagamentos, METODOS_PAGAMENTO, trocoDe } from "./pagamento";
 import { calcularTaxa, MOTIVOS_SEM_TAXA, valorDoDesconto } from "./taxa";
 
-// Status derivado (nunca gravado): vem da comanda aberta e das rodadas.
-// "chamado" e "conta" chegam na Fase 2, com a tabela de chamados.
+// Status derivado (nunca gravado): vem das comandas abertas na mesa, das
+// rodadas e dos chamados.
 export type StatusMesa =
   | "livre"
   | "aguardando"
@@ -37,10 +38,11 @@ export type MesaMapa = {
   id: string;
   numero: number;
   status: StatusMesa;
-  comandaId: string | null;
-  mesaPrincipalNumero: number | null;
-  agrupadaCom: number[];
-  garcom: string | null;
+  // Comandas (cartões) abertas nesta mesa agora.
+  comandas: { id: string; numero: number | null }[];
+  // Garçons titulares das comandas da mesa.
+  garcons: string[];
+  // Da comanda mais antiga da mesa.
   abertaEm: string | null;
   ultimaRodadaEm: string | null;
   totalCentavos: number;
@@ -53,9 +55,8 @@ export const listarMapa = async (
   const linhas = await db().execute<{
     id: string;
     numero: number;
-    comanda_id: string | null;
-    mesa_principal_id: string | null;
-    garcom: string | null;
+    comandas: { id: string; numero: number | null }[] | null;
+    garcons: string[] | null;
     aberta_em: Date | null;
     rodadas: number;
     ultima_rodada_em: Date | null;
@@ -64,48 +65,40 @@ export const listarMapa = async (
     total: number;
   }>(sql`
     select m.id, m.numero,
-           c.id as comanda_id, c.mesa_principal_id, f.nome as garcom, c.aberta_em,
-           coalesce(r.qtd, 0)::int as rodadas, r.ultima as ultima_rodada_em,
-           coalesce(t.total, 0)::int as total,
+           ab.comandas, ab.garcons, ab.aberta_em,
+           coalesce(ab.rodadas, 0)::int as rodadas, ab.ultima_rodada_em,
+           coalesce(ab.total, 0)::int as total,
            exists (
              select 1 from pedido_ajuda pa
               where pa.mesa_id = m.id and pa.encerrado_em is null and pa.aceito_por is null
            ) as ajuda,
            (
-             select c.tipo from chamado c
-              where c.mesa_id = m.id and c.encerrado_em is null
-              order by (c.tipo = 'conta') desc
+             select ch.tipo from chamado ch
+              where ch.mesa_id = m.id and ch.encerrado_em is null
+              order by (ch.tipo = 'conta') desc
               limit 1
            ) as chamado
       from mesa m
-      left join comanda_mesa cm on cm.mesa_id = m.id and cm.saiu_em is null
-      left join comanda c on c.id = cm.comanda_id and c.status = 'aberta'
-      left join funcionario f on f.id = c.garcom_titular_id
       left join lateral (
-        select count(*) as qtd, max(lancada_em) as ultima
-          from rodada where comanda_id = c.id
-      ) r on true
-      left join lateral (
-        select sum(total_centavos) as total
-          from item_pedido where comanda_id = c.id and status = 'ativo'
-      ) t on true
+        select json_agg(json_build_object('id', c.id, 'numero', c.numero)
+                        order by c.numero nulls first, c.aberta_em) as comandas,
+               array_agg(distinct f.nome) as garcons,
+               min(c.aberta_em) as aberta_em,
+               sum((select count(*) from rodada r where r.comanda_id = c.id)) as rodadas,
+               max((select max(r.lancada_em) from rodada r where r.comanda_id = c.id)) as ultima_rodada_em,
+               sum((select coalesce(sum(i.total_centavos), 0) from item_pedido i
+                     where i.comanda_id = c.id and i.status = 'ativo')) as total
+          from comanda_mesa cm
+          join comanda c on c.id = cm.comanda_id and c.status = 'aberta'
+          join funcionario f on f.id = c.garcom_titular_id
+         where cm.mesa_id = m.id and cm.saiu_em is null
+      ) ab on true
      where m.restaurante_id = ${restauranteId} and m.ativa
      order by m.numero
   `);
 
-  const porComanda = new Map<string, number[]>();
-  const numeroPorId = new Map<string, number>();
-  for (const linha of linhas.rows) {
-    numeroPorId.set(linha.id, linha.numero);
-    if (linha.comanda_id) {
-      const lista = porComanda.get(linha.comanda_id) ?? [];
-      lista.push(linha.numero);
-      porComanda.set(linha.comanda_id, lista);
-    }
-  }
-
   return linhas.rows.map((linha) => {
-    const aberta = Boolean(linha.comanda_id);
+    const comandas = linha.comandas ?? [];
     return {
       id: linha.id,
       numero: linha.numero,
@@ -115,21 +108,13 @@ export const listarMapa = async (
           ? "conta"
           : linha.chamado === "garcom"
             ? "chamado"
-            : !aberta
+            : !comandas.length
               ? "livre"
               : linha.rodadas > 0
                 ? "ocupada"
                 : "aguardando",
-      comandaId: linha.comanda_id,
-      mesaPrincipalNumero: linha.mesa_principal_id
-        ? (numeroPorId.get(linha.mesa_principal_id) ?? null)
-        : null,
-      agrupadaCom: linha.comanda_id
-        ? (porComanda.get(linha.comanda_id) ?? []).filter(
-            (n) => n !== linha.numero,
-          )
-        : [],
-      garcom: linha.garcom,
+      comandas,
+      garcons: linha.garcons ?? [],
       abertaEm: linha.aberta_em
         ? new Date(linha.aberta_em).toISOString()
         : null,
@@ -142,16 +127,161 @@ export const listarMapa = async (
   });
 };
 
-export type DetalheMesa = Awaited<ReturnType<typeof detalharMesa>>;
+export type ComandaDaMesa = {
+  id: string;
+  numero: number | null;
+  titular: string;
+  abertaEm: string;
+  totalCentavos: number;
+  rodadas: number;
+  pediuConta: boolean;
+};
 
-// Tudo que a tela da mesa precisa: comanda, mesas agrupadas e o histórico
-// de rodadas (somente leitura, cada rodada é imutável).
+export type MesaComComandas = Awaited<ReturnType<typeof detalharMesa>>;
+
+// Tela da mesa: as comandas (cartões) que estão nela agora.
 export const detalharMesa = async (restauranteId: string, mesaId: string) => {
   const mesa = await buscarMesa(db(), restauranteId, mesaId);
-  const comanda = await comandaAbertaDaMesa(db(), mesaId);
-  if (!comanda) {
-    return { mesa: { id: mesa.id, numero: mesa.numero }, comanda: null };
+  const linhas = await db().execute<{
+    id: string;
+    numero: number | null;
+    titular: string;
+    aberta_em: Date;
+    total: number;
+    rodadas: number;
+    pediu_conta: boolean;
+  }>(sql`
+    select c.id, c.numero, f.nome as titular, c.aberta_em,
+           coalesce((select sum(i.total_centavos) from item_pedido i
+                      where i.comanda_id = c.id and i.status = 'ativo'), 0)::int as total,
+           (select count(*) from rodada r where r.comanda_id = c.id)::int as rodadas,
+           exists (select 1 from chamado ch where ch.comanda_id = c.id
+                    and ch.tipo = 'conta' and ch.encerrado_em is null) as pediu_conta
+      from comanda_mesa cm
+      join comanda c on c.id = cm.comanda_id and c.status = 'aberta'
+      join funcionario f on f.id = c.garcom_titular_id
+     where cm.mesa_id = ${mesaId} and cm.saiu_em is null
+     order by c.numero nulls first, c.aberta_em
+  `);
+  return {
+    mesa: { id: mesa.id, numero: mesa.numero },
+    comandas: linhas.rows.map(
+      (l): ComandaDaMesa => ({
+        id: l.id,
+        numero: l.numero,
+        titular: l.titular,
+        abertaEm: new Date(l.aberta_em).toISOString(),
+        totalCentavos: l.total,
+        rodadas: l.rodadas,
+        pediuConta: l.pediu_conta,
+      }),
+    ),
+  };
+};
+
+export const abrirComandaSchema = z.object({
+  mesaId: z.uuid(),
+  numero: z.coerce.number().int().min(1).max(9999),
+});
+
+// Abre a comanda de um cartão numa mesa. Dois garçons abrindo o mesmo cartão
+// no mesmo instante: o índice único (um cartão, uma comanda aberta) barra o
+// segundo, que recebe a mesa onde o cartão já está.
+export const abrirComanda = async (
+  sessao: Sessao,
+  { mesaId, numero }: z.infer<typeof abrirComandaSchema>,
+) => {
+  const { restauranteId } = sessao.funcionario;
+  try {
+    const comanda = await db().transaction(async (tx) => {
+      await buscarMesa(tx, restauranteId, mesaId);
+      const [cartao] = await tx
+        .select()
+        .from(schema.cartoesComanda)
+        .where(
+          and(
+            eq(schema.cartoesComanda.restauranteId, restauranteId),
+            eq(schema.cartoesComanda.numero, numero),
+          ),
+        );
+      if (!cartao?.ativo) {
+        throw naoEncontrado(`Cartão ${numero}`);
+      }
+      const [nova] = await tx
+        .insert(schema.comandas)
+        .values({
+          restauranteId,
+          mesaPrincipalId: mesaId,
+          garcomTitularId: sessao.funcionario.id,
+          cartaoId: cartao.id,
+          numero,
+        })
+        .returning();
+      await tx
+        .insert(schema.comandaMesas)
+        .values({ comandaId: nova.id, mesaId });
+      await registrarGarcom(tx, nova.id, sessao.funcionario.id, "titular");
+      return nova;
+    });
+    notificar(restauranteId, ["mesas"]);
+    return { comandaId: comanda.id, numero };
+  } catch (error) {
+    if (!violouConstraint(error, "comanda_cartao_aberta_idx")) throw error;
+    const aberta = await comandaPorNumero(restauranteId, numero);
+    throw conflito(
+      "cartao_em_uso",
+      `O cartão ${numero} já está aberto na mesa ${aberta.mesaNumero}.`,
+      aberta,
+    );
   }
+};
+
+// Acha a comanda aberta de um cartão (número digitado ou lido no código de
+// barras), para o garçom e o caixa irem direto nela.
+export const comandaPorNumero = async (
+  restauranteId: string,
+  numero: number,
+) => {
+  const [linha] = await db()
+    .select({
+      comandaId: schema.comandas.id,
+      mesaId: schema.mesas.id,
+      mesaNumero: schema.mesas.numero,
+    })
+    .from(schema.comandas)
+    .innerJoin(
+      schema.comandaMesas,
+      and(
+        eq(schema.comandaMesas.comandaId, schema.comandas.id),
+        isNull(schema.comandaMesas.saiuEm),
+      ),
+    )
+    .innerJoin(schema.mesas, eq(schema.mesas.id, schema.comandaMesas.mesaId))
+    .where(
+      and(
+        eq(schema.comandas.restauranteId, restauranteId),
+        eq(schema.comandas.numero, numero),
+        eq(schema.comandas.status, "aberta"),
+      ),
+    )
+    .limit(1);
+  if (!linha) throw naoEncontrado(`Comanda aberta com o cartão ${numero}`);
+  return linha;
+};
+
+export type DetalheComanda = Awaited<ReturnType<typeof detalharComanda>>;
+// Nome antigo, ainda usado pelas telas de recebimento.
+export type DetalheMesa = DetalheComanda;
+
+// Tudo que a tela da comanda precisa: a mesa em que está, a equipe e o
+// histórico de rodadas (somente leitura, cada rodada é imutável).
+export const detalharComanda = async (
+  restauranteId: string,
+  comandaId: string,
+) => {
+  const comanda = await buscarComandaAberta(db(), restauranteId, comandaId);
+  const [mesaAtual] = await mesasDaComanda(db(), comanda.id);
+  const mesa = await buscarMesa(db(), restauranteId, mesaAtual.id);
 
   const [mesas, titular, rodadas] = await Promise.all([
     mesasDaComanda(db(), comanda.id),
@@ -252,10 +382,7 @@ export const detalharMesa = async (restauranteId: string, mesaId: string) => {
     .from(schema.chamados)
     .where(
       and(
-        inArray(
-          schema.chamados.mesaId,
-          mesas.map((m) => m.id),
-        ),
+        eq(schema.chamados.comandaId, comanda.id),
         eq(schema.chamados.tipo, "conta"),
         isNull(schema.chamados.encerradoEm),
       ),
@@ -266,6 +393,7 @@ export const detalharMesa = async (restauranteId: string, mesaId: string) => {
     mesa: { id: mesa.id, numero: mesa.numero },
     comanda: {
       id: comanda.id,
+      numero: comanda.numero,
       abertaEm: comanda.abertaEm.toISOString(),
       taxa,
       taxaConfig,
@@ -329,161 +457,22 @@ export const detalharMesa = async (restauranteId: string, mesaId: string) => {
   };
 };
 
-export const juntarMesasSchema = z.object({
-  mesaIds: z.array(z.uuid()).min(1).max(10),
-});
-
-// Junta mesas livres à comanda da mesa principal. Os itens continuam
-// guardando a mesa de origem, então a conta pode ser dividida depois.
-export const juntarMesas = async (
-  sessao: Sessao,
-  mesaPrincipalId: string,
-  mesaIds: string[],
-) => {
-  const { restauranteId } = sessao.funcionario;
-  const adicionais = [...new Set(mesaIds)].filter(
-    (id) => id !== mesaPrincipalId,
-  );
-  if (!adicionais.length)
-    throw invalido("Escolha ao menos uma mesa para juntar.");
-
-  const comandaId = await db().transaction(async (tx) => {
-    await buscarMesa(tx, restauranteId, mesaPrincipalId);
-    let comanda = await comandaAbertaDaMesa(tx, mesaPrincipalId);
-
-    if (!comanda) {
-      const [nova] = await tx
-        .insert(schema.comandas)
-        .values({
-          restauranteId,
-          mesaPrincipalId,
-          garcomTitularId: sessao.funcionario.id,
-        })
-        .returning();
-      await tx
-        .insert(schema.comandaMesas)
-        .values({ comandaId: nova.id, mesaId: mesaPrincipalId });
-      await registrarGarcom(tx, nova.id, sessao.funcionario.id, "titular");
-      comanda = nova;
-    }
-
-    for (const mesaId of adicionais) {
-      const mesa = await buscarMesa(tx, restauranteId, mesaId);
-      const outra = await comandaAbertaDaMesa(tx, mesaId);
-      if (outra?.id === comanda.id) continue;
-      if (outra) {
-        // Mesa aberta mas ainda sem pedido: a comanda vazia é descartada.
-        const [{ itens }] = (
-          await tx.execute<{ itens: number }>(
-            sql`select count(*)::int as itens from rodada where comanda_id = ${outra.id}`,
-          )
-        ).rows;
-        if (itens > 0) {
-          throw conflito(
-            "mesa_com_pedidos",
-            `A mesa ${mesa.numero} já tem pedidos. Feche ou transfira antes de juntar.`,
-          );
-        }
-        await tx
-          .update(schema.comandaMesas)
-          .set({ saiuEm: new Date() })
-          .where(
-            and(
-              eq(schema.comandaMesas.comandaId, outra.id),
-              isNull(schema.comandaMesas.saiuEm),
-            ),
-          );
-        await tx
-          .update(schema.comandas)
-          .set({ status: "cancelada", fechadaEm: new Date() })
-          .where(eq(schema.comandas.id, outra.id));
-      }
-      try {
-        await tx.transaction((sp) =>
-          sp
-            .insert(schema.comandaMesas)
-            .values({ comandaId: comanda.id, mesaId }),
-        );
-      } catch (error) {
-        if (violouConstraint(error, "comanda_mesa_ativa_idx")) {
-          throw conflito(
-            "mesa_ocupada",
-            `A mesa ${mesa.numero} acabou de ser aberta por outro garçom.`,
-          );
-        }
-        throw error;
-      }
-    }
-    return comanda.id;
-  });
-
-  notificar(restauranteId, ["mesas", `comanda:${comandaId}`]);
-  return { comandaId };
-};
-
-// Tira uma mesa agrupada da comanda. Os itens dela continuam na conta
-// (marcados com a mesa de origem); a mesa volta a ficar livre.
-export const separarMesa = async (sessao: Sessao, mesaId: string) => {
-  const { restauranteId } = sessao.funcionario;
-  const comandaId = await db().transaction(async (tx) => {
-    await buscarMesa(tx, restauranteId, mesaId);
-    const comanda = await comandaAbertaDaMesa(tx, mesaId);
-    if (!comanda)
-      throw conflito("mesa_livre", "Esta mesa não está em nenhuma comanda.");
-    if (comanda.mesaPrincipalId === mesaId) {
-      throw conflito(
-        "mesa_principal",
-        "Esta é a mesa principal. Para mudar de lugar use Transferir.",
-      );
-    }
-    await tx
-      .update(schema.comandaMesas)
-      .set({ saiuEm: new Date() })
-      .where(
-        and(
-          eq(schema.comandaMesas.mesaId, mesaId),
-          isNull(schema.comandaMesas.saiuEm),
-        ),
-      );
-    return comanda.id;
-  });
-  notificar(restauranteId, ["mesas", `comanda:${comandaId}`]);
-  return { comandaId };
-};
-
 export const transferirSchema = z.object({ destinoMesaId: z.uuid() });
 
-// Move a comanda inteira da mesa principal para outra mesa livre
-// (cliente pediu para trocar de lugar). Diferente de juntar.
+// Move a comanda para outra mesa (cliente trocou de lugar). A mesa de
+// destino pode ter outras comandas; os itens guardam a mesa de origem.
 export const transferirComanda = async (
   sessao: Sessao,
-  origemMesaId: string,
+  comandaId: string,
   destinoMesaId: string,
 ) => {
   const { restauranteId } = sessao.funcionario;
-  if (origemMesaId === destinoMesaId) throw invalido("Escolha outra mesa.");
-
-  const comandaId = await db().transaction(async (tx) => {
-    await buscarMesa(tx, restauranteId, origemMesaId);
+  await db().transaction(async (tx) => {
+    const comanda = await buscarComandaAberta(tx, restauranteId, comandaId);
     const destino = await buscarMesa(tx, restauranteId, destinoMesaId);
-    const comanda = await comandaAbertaDaMesa(tx, origemMesaId);
-    if (!comanda)
-      throw conflito("mesa_livre", "Não há comanda aberta nesta mesa.");
-    if (comanda.mesaPrincipalId !== origemMesaId) {
-      throw conflito(
-        "nao_principal",
-        "Transfira a partir da mesa principal da comanda.",
-      );
-    }
-    if (await comandaAbertaDaMesa(tx, destinoMesaId)) {
-      throw conflito(
-        "destino_ocupado",
-        `A mesa ${destino.numero} não está livre.`,
-      );
-    }
+    const [atual] = await mesasDaComanda(tx, comanda.id);
+    if (atual?.id === destino.id) throw invalido("Escolha outra mesa.");
 
-    // A comanda inteira muda de lugar: todas as mesas dela (inclusive as
-    // agrupadas) ficam livres. Os itens mantêm a mesa de origem original.
     await tx
       .update(schema.comandaMesas)
       .set({ saiuEm: new Date() })
@@ -493,29 +482,27 @@ export const transferirComanda = async (
           isNull(schema.comandaMesas.saiuEm),
         ),
       );
-    try {
-      await tx.transaction((sp) =>
-        sp
-          .insert(schema.comandaMesas)
-          .values({ comandaId: comanda.id, mesaId: destinoMesaId }),
-      );
-    } catch (error) {
-      if (violouConstraint(error, "comanda_mesa_ativa_idx")) {
-        throw conflito(
-          "destino_ocupado",
-          `A mesa ${destino.numero} acabou de ser aberta.`,
-        );
-      }
-      throw error;
-    }
+    await tx
+      .insert(schema.comandaMesas)
+      .values({ comandaId: comanda.id, mesaId: destino.id });
     await tx
       .update(schema.comandas)
-      .set({ mesaPrincipalId: destinoMesaId })
+      .set({ mesaPrincipalId: destino.id })
       .where(eq(schema.comandas.id, comanda.id));
-    return comanda.id;
+    // O pedido de conta vai junto com a comanda.
+    await tx
+      .update(schema.chamados)
+      .set({ mesaId: destino.id })
+      .where(
+        and(
+          eq(schema.chamados.comandaId, comanda.id),
+          eq(schema.chamados.tipo, "conta"),
+          isNull(schema.chamados.encerradoEm),
+        ),
+      );
   });
 
-  notificar(restauranteId, ["mesas", `comanda:${comandaId}`]);
+  notificar(restauranteId, ["mesas", "chamados", `comanda:${comandaId}`]);
   return { comandaId };
 };
 
@@ -591,7 +578,7 @@ export type FecharMesaInput = Partial<z.infer<typeof fecharMesaSchema>>;
 // cada um lançou, separadamente) e encerra os chamados da mesa.
 export const fecharComanda = async (
   sessao: Sessao,
-  mesaId: string,
+  comandaId: string,
   {
     taxaServico = true,
     semTaxaMotivo,
@@ -606,9 +593,7 @@ export const fecharComanda = async (
     throw semPermissao();
   const { restauranteId } = sessao.funcionario;
   const resultado = await db().transaction(async (tx) => {
-    await buscarMesa(tx, restauranteId, mesaId);
-    const comanda = await comandaAbertaDaMesa(tx, mesaId);
-    if (!comanda) throw naoEncontrado("Comanda aberta");
+    const comanda = await buscarComandaAberta(tx, restauranteId, comandaId);
     // Trava a comanda: dois garçons fechando ao mesmo tempo não duplicam gorjeta.
     await tx.execute(
       sql`select id from comanda where id = ${comanda.id} for update`,
@@ -753,14 +738,25 @@ export const fecharComanda = async (
         fechadaPor: sessao.funcionario.id,
       })
       .where(eq(schema.comandas.id, comanda.id));
-    // Mesa liberada: chamados dela (inclusive "pediu a conta") se encerram.
-    if (mesasDaComandaIds.length) {
+    // O pedido de conta desta comanda se encerra. "Chamou garçom" é da
+    // mesa: só se encerra quando a última comanda dela for paga.
+    await tx
+      .update(schema.chamados)
+      .set({ encerradoEm: new Date() })
+      .where(
+        and(
+          eq(schema.chamados.comandaId, comanda.id),
+          isNull(schema.chamados.encerradoEm),
+        ),
+      );
+    for (const mesaId of mesasDaComandaIds) {
+      if ((await comandasAbertasDaMesa(tx, mesaId)).length) continue;
       await tx
         .update(schema.chamados)
         .set({ encerradoEm: new Date() })
         .where(
           and(
-            inArray(schema.chamados.mesaId, mesasDaComandaIds),
+            eq(schema.chamados.mesaId, mesaId),
             isNull(schema.chamados.encerradoEm),
           ),
         );

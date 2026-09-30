@@ -23,9 +23,26 @@ Decisões que o código assume:
   "Lançar" duas vezes, ou a rede reenviar, não duplica pedido nem ticket.
 - **Estoque atômico:** `UPDATE ... WHERE estoque >= q`, em ordem de id. Nunca
   "ler, subtrair, salvar".
-- **Uma mesa, uma comanda aberta:** índice único parcial em `comanda_mesa`.
-  Dois garçons abrindo a mesma mesa ao mesmo tempo caem na mesma comanda.
-- **Status da mesa é derivado** (comanda aberta + rodadas), nunca gravado.
+- **Comanda por cartão, mesa é o lugar:** cada pessoa (ou casal) que paga
+  separado recebe um cartão físico numerado (`cartao_comanda`). O garçom abre
+  a comanda com o número do cartão numa mesa; uma mesa pode ter várias
+  comandas, e cada comanda está em uma mesa por vez (`comanda_mesa`, índice
+  único por comanda). Um cartão só tem uma comanda aberta (índice único
+  parcial `comanda_cartao_aberta_idx`): dois garçons abrindo o mesmo cartão
+  ao mesmo tempo, o segundo recebe "cartão em uso na mesa X". Pagou, o número
+  volta para o monte. Não existe mais "juntar mesas": grupo espalhado usa os
+  cartões; "trocar de mesa" move só a comanda.
+- **Cartão**: QR (`/c/k/<token>`) leva o cliente à conta da comanda dele, na
+  mesa onde ela está agora; código de barras (o número, 3 dígitos) acha a
+  comanda no caixa e no garçom (`/api/comandas/numero/<n>`). O leitor USB
+  funciona como teclado: digita o número e aperta Enter. Impressão dos
+  cartões em `/gerente/cartoes`.
+- **QR da mesa com várias comandas**: "chamar garçom" é da mesa; "pedir a
+  conta" e "minha conta" são da comanda. Mesa com uma comanda só funciona sem
+  identificação; com várias, o cliente digita o número do cartão (só vale
+  comanda daquela mesa) ou usa o QR do cartão (`src/lib/dominio/cliente.ts`).
+- **Status da mesa é derivado** (comandas abertas nela + rodadas + chamados),
+  nunca gravado.
 - **Editar item lançado** não altera a linha original: ela é cancelada
   ("Alterado") e um item novo aponta para ela (`substitui_item_id`). Se o
   ticket ainda está na fila, é corrigido lá; se já saiu, vai um ticket de
@@ -170,8 +187,8 @@ instalada uma vez em cada celular de garçom.
 
 ## Limitações conhecidas (MVP)
 
-- **Juntar mesas** só aceita mesas livres ou abertas sem pedido. Para juntar
-  duas comandas que já têm pedidos, feche ou transfira uma antes.
+- **Dividir uma comanda** já lançada entre pessoas não existe: a divisão é
+  feita antes, com um cartão por pessoa ou casal.
 - **Receber pagamento** registra o pagamento feito na maquininha; não há
   integração com a maquininha nem tela de caixa. Dividir a conta entre
   pessoas fica para as próximas fases.

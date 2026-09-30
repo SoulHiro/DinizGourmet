@@ -288,6 +288,15 @@ export const semear = async (connectionString: string) => {
         })),
       );
 
+      // Cartões de comanda 1 a 50 (o QR e o código de barras de cada um
+      // saem em /gerente > Cartões).
+      await tx.insert(schema.cartoesComanda).values(
+        Array.from({ length: 50 }, (_, i) => ({
+          restauranteId,
+          numero: i + 1,
+        })),
+      );
+
       await tx.insert(funcionarios).values([
         {
           restauranteId,

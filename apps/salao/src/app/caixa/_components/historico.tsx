@@ -50,6 +50,7 @@ export const HistoricoContas = () => {
     de: "",
     ate: "",
     mesa: "",
+    comanda: "",
   });
   const [aberta, setAberta] = useState<string | null>(null);
 
@@ -107,10 +108,27 @@ export const HistoricoContas = () => {
             }
           />
         </label>
-        {(filtro.de || filtro.ate || filtro.mesa) && (
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="text-texto-secundario">Comanda</span>
+          <input
+            inputMode="numeric"
+            className={cn(campo, "w-24")}
+            placeholder="Todas"
+            value={filtro.comanda}
+            onChange={(e) =>
+              setFiltro({
+                ...filtro,
+                comanda: e.target.value.replace(/\D/g, ""),
+              })
+            }
+          />
+        </label>
+        {(filtro.de || filtro.ate || filtro.mesa || filtro.comanda) && (
           <Button
             variant="ghost"
-            onClick={() => setFiltro({ ...filtro, de: "", ate: "", mesa: "" })}
+            onClick={() =>
+              setFiltro({ ...filtro, de: "", ate: "", mesa: "", comanda: "" })
+            }
           >
             Limpar filtros
           </Button>
@@ -133,6 +151,7 @@ export const HistoricoContas = () => {
           <thead className="border-borda border-b text-texto-secundario">
             <tr>
               <th className="p-3 font-semibold">Horário</th>
+              <th className="p-3 font-semibold">Comanda</th>
               <th className="p-3 font-semibold">Mesa</th>
               <th className="p-3 font-semibold">Garçom</th>
               <th className="p-3 font-semibold">Recebido por</th>
@@ -151,7 +170,8 @@ export const HistoricoContas = () => {
                 <td className="p-3">
                   {hora(c.abertaEm)} – {hora(c.fechadaEm)}
                 </td>
-                <td className="p-3 font-semibold">{c.mesas.join(" + ")}</td>
+                <td className="p-3 font-bold">{c.numero ?? "—"}</td>
+                <td className="p-3">{c.mesas.join(" + ")}</td>
                 <td className="p-3">{c.titular}</td>
                 <td className="p-3">{c.recebidoPor ?? "—"}</td>
                 <td className="p-3">
@@ -175,7 +195,7 @@ export const HistoricoContas = () => {
             {data.length === 0 && (
               <tr>
                 <td
-                  colSpan={7}
+                  colSpan={8}
                   className="p-8 text-center text-texto-secundario"
                 >
                   Nenhuma conta neste período.
@@ -228,7 +248,9 @@ const DetalheDaConta = ({
       >
         <div className="flex items-center justify-between border-borda border-b p-4">
           <h2 className="font-bold text-xl">
-            {data ? `Mesa ${data.mesas.join(" + ")}` : "Carregando..."}
+            {data
+              ? `${data.numero ? `Comanda ${data.numero} · ` : ""}Mesa ${data.mesas.join(" + ")}`
+              : "Carregando..."}
           </h2>
           <button
             type="button"

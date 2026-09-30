@@ -370,6 +370,30 @@ export const mesas = pgTable(
   ],
 );
 
+// Cartão físico da comanda (1, 2, 3...). Reutilizável: enquanto uma comanda
+// está aberta com ele, ninguém mais usa o número; ao pagar, volta para o
+// monte. O QR impresso no cartão abre a conta daquela comanda no celular do
+// cliente, e o código de barras (o número) acha a comanda no caixa.
+export const cartoesComanda = pgTable(
+  "cartao_comanda",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    restauranteId: uuid("restaurante_id")
+      .notNull()
+      .references(() => restaurantes.id),
+    numero: integer("numero").notNull(),
+    tokenQr: text("token_qr")
+      .notNull()
+      .default(sql`replace(gen_random_uuid()::text, '-', '')`),
+    ativo: boolean("ativo").notNull().default(true),
+    criadoEm: criadoEm(),
+  },
+  (t) => [
+    uniqueIndex("cartao_numero_idx").on(t.restauranteId, t.numero),
+    uniqueIndex("cartao_token_qr_idx").on(t.tokenQr),
+  ],
+);
+
 export const comandas = pgTable(
   "comanda",
   {
@@ -383,6 +407,10 @@ export const comandas = pgTable(
     garcomTitularId: uuid("garcom_titular_id")
       .notNull()
       .references(() => funcionarios.id),
+    // Cartão da comanda. Nulo só em comandas anteriores aos cartões.
+    cartaoId: uuid("cartao_id").references(() => cartoesComanda.id),
+    // Número do cartão guardado na comanda (o cartão é reutilizado depois).
+    numero: integer("numero"),
     status: statusComandaEnum("status").notNull().default("aberta"),
     abertaEm: timestamp("aberta_em", { withTimezone: true })
       .notNull()
@@ -405,6 +433,11 @@ export const comandas = pgTable(
   },
   (t) => [
     index("comanda_restaurante_status_idx").on(t.restauranteId, t.status),
+    // Um cartão nunca está em duas comandas abertas ao mesmo tempo. É isso
+    // que resolve dois garçons abrindo o mesmo cartão no mesmo instante.
+    uniqueIndex("comanda_cartao_aberta_idx")
+      .on(t.cartaoId)
+      .where(sql`${t.status} = 'aberta'`),
     index("comanda_mesa_principal_idx").on(t.mesaPrincipalId),
     // Histórico do caixa: contas por data de fechamento.
     index("comanda_restaurante_fechada_idx").on(t.restauranteId, t.fechadaEm),
@@ -459,11 +492,12 @@ export const comandaMesas = pgTable(
     saiuEm: timestamp("saiu_em", { withTimezone: true }),
   },
   (t) => [
-    // Uma mesa nunca pode estar em duas comandas abertas ao mesmo tempo.
-    // É isso que resolve dois garçons abrindo a mesma mesa simultaneamente.
-    uniqueIndex("comanda_mesa_ativa_idx")
-      .on(t.mesaId)
+    // A mesa é só o lugar: várias comandas podem estar na mesma mesa, mas
+    // cada comanda está em uma mesa por vez (transferir troca a linha).
+    uniqueIndex("comanda_mesa_local_idx")
+      .on(t.comandaId)
       .where(sql`${t.saiuEm} is null`),
+    index("comanda_mesa_mesa_idx").on(t.mesaId),
     index("comanda_mesa_comanda_idx").on(t.comandaId),
   ],
 );
@@ -599,6 +633,8 @@ export type ContaImpressa = {
 
 export type TicketPayload = {
   mesas: number[];
+  // Número do cartão da comanda (nulo nas comandas anteriores aos cartões).
+  comanda?: number | null;
   garcom: string;
   rodada: number;
   lancadaEm: string;
@@ -729,10 +765,14 @@ export const chamados = pgTable(
   },
   (t) => [
     index("chamado_restaurante_idx").on(t.restauranteId, t.encerradoEm),
-    // Cliente apertando várias vezes não cria vários chamados.
-    uniqueIndex("chamado_mesa_aberto_idx")
-      .on(t.mesaId, t.tipo)
-      .where(sql`${t.encerradoEm} is null`),
+    // Cliente apertando várias vezes não cria vários chamados. "Chamar
+    // garçom" é da mesa; "pedir a conta" é de cada comanda (cartão).
+    uniqueIndex("chamado_garcom_aberto_idx")
+      .on(t.mesaId)
+      .where(sql`${t.encerradoEm} is null and ${t.tipo} = 'garcom'`),
+    uniqueIndex("chamado_conta_aberto_idx")
+      .on(t.comandaId)
+      .where(sql`${t.encerradoEm} is null and ${t.tipo} = 'conta'`),
   ],
 );
 

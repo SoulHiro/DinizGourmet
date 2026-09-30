@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import { db, schema } from "@/db";
@@ -10,7 +10,7 @@ import {
   violouConstraint,
 } from "@/lib/erros";
 import { notificar } from "@/lib/runtime";
-import { buscarMesa, comandaAbertaDaMesa, registrarGarcom } from "./comum";
+import { buscarMesa, comandasAbertasDaMesa, registrarGarcom } from "./comum";
 
 export type PedidoAjuda = {
   id: string;
@@ -30,7 +30,7 @@ export type PedidoAjuda = {
 export const pedirAjuda = async (sessao: Sessao, mesaId: string) => {
   const { restauranteId } = sessao.funcionario;
   const mesa = await buscarMesa(db(), restauranteId, mesaId);
-  const comanda = await comandaAbertaDaMesa(db(), mesaId);
+  const [comanda] = await comandasAbertasDaMesa(db(), mesaId);
 
   try {
     const [pedido] = await db()
@@ -134,10 +134,11 @@ export const aceitarAjuda = async (sessao: Sessao, pedidoId: string) => {
       "Outro garçom já aceitou este pedido de ajuda.",
     );
   }
-  // Quem aceitou vira auxiliar da comanda (entra na divisão da gorjeta).
-  const comanda = await comandaAbertaDaMesa(db(), aceito.mesaId);
-  if (comanda)
+  // Quem aceitou vira auxiliar das comandas da mesa (entra na divisão da
+  // gorjeta de cada uma): quem ajuda na mesa atende todos os cartões dela.
+  for (const comanda of await comandasAbertasDaMesa(db(), aceito.mesaId)) {
     await registrarGarcom(db(), comanda.id, funcionarioId, "auxiliar");
+  }
   notificar(restauranteId, ["ajuda", "mesas"]);
   return aceito;
 };
@@ -208,39 +209,54 @@ export const manutencaoAjudas = async (escalarAposSegundos: number) => {
 };
 
 // Garçom livre se oferece para ajudar numa mesa sem ter sido chamado: entra
-// direto como auxiliar e o titular recebe o aviso "Fulano entrou para ajudar".
+// direto como auxiliar das comandas dela e o titular recebe o aviso
+// "Fulano entrou para ajudar".
 export const oferecerAjuda = async (sessao: Sessao, mesaId: string) => {
   const { restauranteId, id: funcionarioId } = sessao.funcionario;
   await buscarMesa(db(), restauranteId, mesaId);
-  const comanda = await comandaAbertaDaMesa(db(), mesaId);
-  if (!comanda) {
+  const comandas = await comandasAbertasDaMesa(db(), mesaId);
+  if (!comandas.length) {
     throw conflito("mesa_livre", "Esta mesa ainda não tem comanda aberta.");
   }
-  if (comanda.garcomTitularId === funcionarioId) {
-    throw conflito("ja_titular", "Você já é o garçom desta mesa.");
-  }
-  const [jaEsta] = await db()
-    .select()
+  const membros = await db()
+    .select({ comandaId: schema.comandaGarcons.comandaId })
     .from(schema.comandaGarcons)
     .where(
       and(
-        eq(schema.comandaGarcons.comandaId, comanda.id),
+        inArray(
+          schema.comandaGarcons.comandaId,
+          comandas.map((c) => c.id),
+        ),
         eq(schema.comandaGarcons.funcionarioId, funcionarioId),
       ),
     );
-  if (jaEsta)
-    throw conflito("ja_auxiliar", "Você já está ajudando nesta mesa.");
+  const faltam = comandas.filter(
+    (c) => !membros.some((m) => m.comandaId === c.id),
+  );
+  if (!faltam.length) {
+    throw comandas.some((c) => c.garcomTitularId === funcionarioId)
+      ? conflito("ja_titular", "Você já é o garçom desta mesa.")
+      : conflito("ja_auxiliar", "Você já está ajudando nesta mesa.");
+  }
 
-  await registrarGarcom(db(), comanda.id, funcionarioId, "auxiliar");
+  for (const comanda of faltam) {
+    await registrarGarcom(db(), comanda.id, funcionarioId, "auxiliar");
+  }
+  // O aviso vai para o titular da primeira comanda em que ele entrou.
+  const principal = faltam[0];
   await db().insert(schema.pedidosAjuda).values({
     restauranteId,
     mesaId,
-    comandaId: comanda.id,
-    solicitanteId: comanda.garcomTitularId,
+    comandaId: principal.id,
+    solicitanteId: principal.garcomTitularId,
     aceitoPor: funcionarioId,
     aceitoEm: new Date(),
     espontaneo: true,
   });
-  notificar(restauranteId, ["ajuda", "mesas", `comanda:${comanda.id}`]);
-  return { comandaId: comanda.id };
+  notificar(restauranteId, [
+    "ajuda",
+    "mesas",
+    ...faltam.map((c) => `comanda:${c.id}` as const),
+  ]);
+  return { comandaIds: faltam.map((c) => c.id) };
 };

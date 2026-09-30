@@ -1,24 +1,18 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 
 import { db, schema } from "@/db";
-import { naoEncontrado } from "@/lib/erros";
 import { listarCardapio } from "./cardapio";
-import { comandaAbertaDaMesa, configTaxa, mesasDaComanda } from "./comum";
+import {
+  comandaDoCliente,
+  type Identificacao,
+  mesaAtivaPorToken,
+} from "./cliente";
+import { configTaxa, mesasDaComanda } from "./comum";
 import { miniatura } from "./midia";
 import { calcularTaxa } from "./taxa";
 
 // O que o cliente vê pelo QR. Nada de estoque exato, nomes de garçom ou
 // itens cancelados: só o necessário para escolher e acompanhar a conta.
-
-const mesaAtivaPorToken = async (token: string) => {
-  const [mesa] = await db()
-    .select()
-    .from(schema.mesas)
-    .where(and(eq(schema.mesas.tokenQr, token), eq(schema.mesas.ativa, true)))
-    .limit(1);
-  if (!mesa) throw naoEncontrado("Mesa");
-  return mesa;
-};
 
 export type ProdutoPublico = {
   id: string;
@@ -91,14 +85,20 @@ export const cardapioPublico = async (token: string) => {
   };
 };
 
-// "Minha conta": o que já foi lançado na comanda da mesa, sem cancelados.
-export const contaPublica = async (token: string) => {
+// "Minha conta": o que já foi lançado na comanda do cliente, sem cancelados.
+// Mesa com várias comandas: "precisaCartao" até ele dizer qual é a dele.
+export const contaPublica = async (
+  token: string,
+  ident: Identificacao = {},
+) => {
   const mesa = await mesaAtivaPorToken(token);
-  const comanda = await comandaAbertaDaMesa(db(), mesa.id);
+  const { comanda, precisaCartao } = await comandaDoCliente(mesa, ident);
   const config = await configTaxa(db(), mesa.restauranteId);
   if (!comanda)
     return {
       mesa: mesa.numero,
+      comanda: null,
+      precisaCartao,
       aberta: false as const,
       itens: [],
       totalCentavos: 0,
@@ -121,6 +121,8 @@ export const contaPublica = async (token: string) => {
 
   return {
     mesa: mesa.numero,
+    comanda: comanda.numero,
+    precisaCartao: false,
     aberta: true as const,
     mesas: mesas.map((m) => m.numero),
     itens: itens.map((i) => ({

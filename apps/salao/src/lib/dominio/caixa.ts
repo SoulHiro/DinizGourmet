@@ -7,7 +7,7 @@ import type { ContaImpressa } from "@/db/schema";
 import type { Sessao } from "@/lib/auth/sessao";
 import { conflito, naoEncontrado } from "@/lib/erros";
 import { acordarImpressao, notificar } from "@/lib/runtime";
-import { comandaAbertaDaMesa, configTaxa } from "./comum";
+import { configTaxa } from "./comum";
 import { inicioDaNoite } from "./gerencia";
 import type { MetodoPagamento } from "./pagamento";
 import { calcularTaxa, type MotivoSemTaxa } from "./taxa";
@@ -59,7 +59,11 @@ const buscarComanda = async (restauranteId: string, comandaId: string) => {
 export const montarConta = async (
   restauranteId: string,
   comandaId: string,
-): Promise<{ mesas: number[]; conta: ContaImpressa }> => {
+): Promise<{
+  mesas: number[];
+  numero: number | null;
+  conta: ContaImpressa;
+}> => {
   const comanda = await buscarComanda(restauranteId, comandaId);
   const [restaurante] = await db()
     .select({ nome: schema.restaurantes.nome })
@@ -144,6 +148,7 @@ export const montarConta = async (
 
   return {
     mesas,
+    numero: comanda.numero,
     conta: {
       restaurante: restaurante?.nome ?? "",
       paga: !aberta,
@@ -180,9 +185,7 @@ export const montarConta = async (
   };
 };
 
-export const imprimirContaSchema = z
-  .object({ mesaId: z.uuid().optional(), comandaId: z.uuid().optional() })
-  .refine((d) => d.mesaId || d.comandaId, { message: "Informe a mesa." });
+export const imprimirContaSchema = z.object({ comandaId: z.uuid() });
 
 // Manda a conta para a impressora do caixa (pré-conta com a mesa aberta,
 // comprovante depois de paga). Qualquer funcionário pode pedir.
@@ -191,14 +194,7 @@ export const imprimirConta = async (
   alvo: z.infer<typeof imprimirContaSchema>,
 ) => {
   const { restauranteId } = sessao.funcionario;
-  let comandaId = alvo.comandaId;
-  if (!comandaId && alvo.mesaId) {
-    const aberta = await comandaAbertaDaMesa(db(), alvo.mesaId);
-    if (!aberta)
-      throw conflito("mesa_livre", "Esta mesa não tem conta aberta.");
-    comandaId = aberta.id;
-  }
-  if (!comandaId) throw naoEncontrado("Conta");
+  const { comandaId } = alvo;
 
   const [impressora] = await db()
     .select({ id: schema.impressoras.id })
@@ -218,7 +214,7 @@ export const imprimirConta = async (
     );
   }
 
-  const { mesas, conta } = await montarConta(restauranteId, comandaId);
+  const { mesas, numero, conta } = await montarConta(restauranteId, comandaId);
   const [trabalho] = await db()
     .insert(schema.trabalhosImpressao)
     .values({
@@ -228,6 +224,7 @@ export const imprimirConta = async (
       comandaId,
       payload: {
         mesas,
+        comanda: numero,
         garcom: sessao.funcionario.nome,
         rodada: 0,
         lancadaEm: new Date().toISOString(),
@@ -253,10 +250,13 @@ export const filtroHistoricoSchema = z.object({
     .regex(/^\d{2}:\d{2}$/)
     .optional(),
   mesa: z.coerce.number().int().min(1).max(9999).optional(),
+  // Número do cartão da comanda.
+  comanda: z.coerce.number().int().min(1).max(9999).optional(),
 });
 
 export type ContaHistorico = {
   comandaId: string;
+  numero: number | null;
   mesas: number[];
   status: "aberta" | "fechada" | "cancelada";
   abertaEm: string;
@@ -289,6 +289,7 @@ export const listarHistorico = async (
       status: schema.comandas.status,
       abertaEm: schema.comandas.abertaEm,
       fechadaEm: schema.comandas.fechadaEm,
+      numero: schema.comandas.numero,
       titular: titular.nome,
       recebidoPor: recebedor.nome,
       desconto: schema.comandas.descontoCentavos,
@@ -313,6 +314,7 @@ export const listarHistorico = async (
         eq(schema.comandas.restauranteId, restauranteId),
         gte(schema.comandas.abertaEm, inicio),
         lt(schema.comandas.abertaEm, fim),
+        filtro.comanda ? eq(schema.comandas.numero, filtro.comanda) : undefined,
         filtro.mesa
           ? sql`exists (select 1 from comanda_mesa cm join mesa m on m.id = cm.mesa_id
               where cm.comanda_id = comanda.id and m.numero = ${filtro.mesa})`
@@ -324,6 +326,7 @@ export const listarHistorico = async (
 
   return linhas.map((l) => ({
     comandaId: l.comandaId,
+    numero: l.numero,
     mesas: (l.mesas ?? []).sort((a, b) => a - b),
     status: l.status,
     abertaEm: l.abertaEm.toISOString(),
@@ -443,6 +446,7 @@ export const detalheDaConta = async (
 
   return {
     comandaId,
+    numero: comanda.numero,
     status: comanda.status,
     mesas,
     abertaEm: comanda.abertaEm.toISOString(),

@@ -3,7 +3,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/cliente";
 import type { CategoriaCardapio } from "@/lib/dominio/cardapio";
-import type { DetalheMesa, MesaMapa } from "@/lib/dominio/mesas";
+import type {
+  DetalheComanda,
+  MesaComComandas,
+  MesaMapa,
+} from "@/lib/dominio/mesas";
 
 // As chaves batem com os escopos do socket: "mesas" invalida o mapa e os
 // detalhes de mesa; "cardapio" invalida o cardápio; "impressao" o badge.
@@ -13,10 +17,19 @@ export const useMapa = () =>
     queryFn: () => api<MesaMapa[]>("/api/mapa"),
   });
 
-export const useDetalheMesa = (mesaId: string) =>
+// Cartões (comandas) abertos numa mesa.
+export const useComandasDaMesa = (mesaId: string) =>
   useQuery({
-    queryKey: ["mesas", "detalhe", mesaId],
-    queryFn: () => api<DetalheMesa>(`/api/mesas/${mesaId}`),
+    queryKey: ["mesas", "comandas", mesaId],
+    queryFn: () => api<MesaComComandas>(`/api/mesas/${mesaId}`),
+  });
+
+// Tudo de uma comanda (tela da comanda, recebimento). Fica sob "mesas" para
+// atualizar junto quando o socket avisar que o salão mudou.
+export const useDetalheComanda = (comandaId: string) =>
+  useQuery({
+    queryKey: ["mesas", "comanda", comandaId],
+    queryFn: () => api<DetalheComanda>(`/api/comandas/${comandaId}`),
   });
 
 export const useCardapio = () =>

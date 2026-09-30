@@ -5,16 +5,24 @@ import { db, schema } from "@/db";
 import type { Sessao } from "@/lib/auth/sessao";
 import { cancelarItem } from "@/lib/dominio/cancelamento";
 import {
+  abrirComanda,
+  comandaPorNumero,
+  detalharComanda,
   detalharMesa,
   fecharComanda,
-  juntarMesas,
   listarMapa,
-  separarMesa,
   transferirComanda,
 } from "@/lib/dominio/mesas";
 import { lancarRodada } from "@/lib/dominio/rodadas";
 import type { ErroDominio } from "@/lib/erros";
-import { chave, definirEstoque, mesa, produto, sessaoDe } from "./helpers";
+import {
+  chave,
+  definirEstoque,
+  lancarNaMesa,
+  mesa,
+  produto,
+  sessaoDe,
+} from "./helpers";
 
 let garcom: Sessao;
 beforeAll(async () => {
@@ -55,7 +63,7 @@ describe("cancelamento de item", () => {
     const agua = await produto("Água sem Gás");
     await definirEstoque(cerveja.id, 10);
 
-    const r = await lancarRodada(garcom, m.id, {
+    const r = await lancarNaMesa(garcom, m.id, {
       idempotencyKey: chave(),
       itens: [
         { produtoId: cerveja.id, quantidade: 2, modificadorIds: [] },
@@ -91,7 +99,7 @@ describe("cancelamento de item", () => {
   it("cancelar o único item de um ticket pendente descarta o trabalho", async () => {
     const m = await mesa(2);
     const batata = await produto("Batata Frita");
-    const r = await lancarRodada(garcom, m.id, {
+    const r = await lancarNaMesa(garcom, m.id, {
       idempotencyKey: chave(),
       itens: [{ produtoId: batata.id, quantidade: 1, modificadorIds: [] }],
     });
@@ -108,7 +116,7 @@ describe("cancelamento de item", () => {
     const m = await mesa(3);
     const coracao = await produto("Xis Tri Bom - Frango");
     await definirEstoque(coracao.id, 5);
-    const r = await lancarRodada(garcom, m.id, {
+    const r = await lancarNaMesa(garcom, m.id, {
       idempotencyKey: chave(),
       itens: [{ produtoId: coracao.id, quantidade: 1, modificadorIds: [] }],
     });
@@ -135,7 +143,7 @@ describe("cancelamento de item", () => {
   it("não cancela duas vezes", async () => {
     const m = await mesa(4);
     const agua = await produto("Água sem Gás");
-    const r = await lancarRodada(garcom, m.id, {
+    const r = await lancarNaMesa(garcom, m.id, {
       idempotencyKey: chave(),
       itens: [{ produtoId: agua.id, quantidade: 1, modificadorIds: [] }],
     });
@@ -153,128 +161,157 @@ describe("cancelamento de item", () => {
   });
 });
 
-describe("mesas: status, juntar, separar, transferir, fechar", () => {
-  it("status derivado: livre, aguardando (sem pedido) e ocupada", async () => {
+describe("comandas por cartão: status, várias por mesa, transferir, fechar", () => {
+  const agua = () => produto("Água sem Gás");
+  const lancarAgua = async (comandaId: string, quantidade = 1) =>
+    lancarRodada(garcom, comandaId, {
+      idempotencyKey: chave(),
+      itens: [{ produtoId: (await agua()).id, quantidade, modificadorIds: [] }],
+    });
+
+  it("status derivado: livre, aguardando (comanda sem pedido) e ocupada", async () => {
     const m10 = await mesa(10);
-    const m11 = await mesa(11);
-    await juntarMesas(garcom, m10.id, [m11.id]);
+    const { comandaId } = await abrirComanda(garcom, {
+      mesaId: m10.id,
+      numero: 40,
+    });
 
     let mapa = await listarMapa(garcom.funcionario.restauranteId);
     const s10 = mapa.find((x) => x.numero === 10);
     expect(s10?.status).toBe("aguardando");
-    expect(s10?.agrupadaCom).toEqual([11]);
-    expect(mapa.find((x) => x.numero === 12)?.status).toBe("livre");
+    expect(s10?.comandas).toEqual([{ id: comandaId, numero: 40 }]);
+    expect(mapa.find((x) => x.numero === 11)?.status).toBe("livre");
 
-    const agua = await produto("Água sem Gás");
-    await lancarRodada(garcom, m11.id, {
-      idempotencyKey: chave(),
-      itens: [{ produtoId: agua.id, quantidade: 2, modificadorIds: [] }],
-    });
+    await lancarAgua(comandaId, 2);
     mapa = await listarMapa(garcom.funcionario.restauranteId);
     expect(mapa.find((x) => x.numero === 10)?.status).toBe("ocupada");
-    expect(mapa.find((x) => x.numero === 11)?.totalCentavos).toBe(1000);
+    expect(mapa.find((x) => x.numero === 10)?.totalCentavos).toBe(1000);
   });
 
-  it("junta mesas preservando a mesa de origem de cada item", async () => {
+  it("cinco casais na mesma mesa: cada cartão com a sua conta, pagando separado", async () => {
     const m12 = await mesa(12);
-    const m13 = await mesa(13);
-    const agua = await produto("Água sem Gás");
-    const refri = await produto("Refrigerante Lata");
-    await definirEstoque(refri.id, 50);
+    const cartoes = [21, 22, 23, 24, 25];
+    const comandas: string[] = [];
+    for (const [i, numero] of cartoes.entries()) {
+      const { comandaId } = await abrirComanda(garcom, {
+        mesaId: m12.id,
+        numero,
+      });
+      comandas.push(comandaId);
+      // Casal i consome i+1 águas (R$ 5 cada).
+      await lancarAgua(comandaId, i + 1);
+    }
 
-    await lancarRodada(garcom, m12.id, {
-      idempotencyKey: chave(),
-      itens: [{ produtoId: agua.id, quantidade: 1, modificadorIds: [] }],
-    });
-    await juntarMesas(garcom, m12.id, [m13.id]);
-    await lancarRodada(garcom, m12.id, {
-      idempotencyKey: chave(),
-      itens: [
-        {
-          produtoId: refri.id,
-          quantidade: 1,
-          modificadorIds: [],
-          mesaOrigemId: m13.id,
-        },
-      ],
-    });
+    const mapa = await listarMapa(garcom.funcionario.restauranteId);
+    const s12 = mapa.find((x) => x.numero === 12);
+    expect(s12?.comandas.map((c) => c.numero)).toEqual(cartoes);
+    expect(s12?.totalCentavos).toBe(500 * (1 + 2 + 3 + 4 + 5));
 
-    const detalhe = await detalharMesa(
+    const tela = await detalharMesa(garcom.funcionario.restauranteId, m12.id);
+    expect(tela.comandas.map((c) => [c.numero, c.totalCentavos])).toEqual([
+      [21, 500],
+      [22, 1000],
+      [23, 1500],
+      [24, 2000],
+      [25, 2500],
+    ]);
+
+    // Cada comanda só vê o próprio consumo.
+    const casal3 = await detalharComanda(
       garcom.funcionario.restauranteId,
-      m13.id,
+      comandas[2],
     );
-    expect(detalhe.comanda?.mesas.map((x) => x.numero)).toEqual([12, 13]);
-    expect(detalhe.comanda?.totaisPorMesa).toEqual(
-      expect.arrayContaining([
-        { numero: 12, totalCentavos: 500 },
-        { numero: 13, totalCentavos: 700 },
-      ]),
-    );
+    expect(casal3.comanda.numero).toBe(23);
+    expect(casal3.comanda.totalCentavos).toBe(1500);
+
+    // O casal 23 paga e vai embora: a mesa continua ocupada pelos outros.
+    const pago = await fecharComanda(garcom, comandas[2], {
+      taxaServico: false,
+      semTaxaMotivo: "cortesia",
+    });
+    expect(pago.totalCentavos).toBe(1500);
+    let depois = await listarMapa(garcom.funcionario.restauranteId);
+    expect(
+      depois.find((x) => x.numero === 12)?.comandas.map((c) => c.numero),
+    ).toEqual([21, 22, 24, 25]);
+    expect(depois.find((x) => x.numero === 12)?.status).toBe("ocupada");
+
+    // Os outros pagam: a mesa fica livre só no último.
+    for (const id of [comandas[0], comandas[1], comandas[3], comandas[4]]) {
+      await fecharComanda(garcom, id, {
+        taxaServico: false,
+        semTaxaMotivo: "cortesia",
+      });
+    }
+    depois = await listarMapa(garcom.funcionario.restauranteId);
+    expect(depois.find((x) => x.numero === 12)?.status).toBe("livre");
   });
 
-  it("não junta mesa que já tem pedidos em outra comanda", async () => {
+  it("um cartão não abre duas comandas; depois de pago, volta a ser usado", async () => {
+    const m13 = await mesa(13);
     const m14 = await mesa(14);
-    const m15 = await mesa(15);
-    const agua = await produto("Água sem Gás");
-    await lancarRodada(garcom, m15.id, {
-      idempotencyKey: chave(),
-      itens: [{ produtoId: agua.id, quantidade: 1, modificadorIds: [] }],
+    const { comandaId } = await abrirComanda(garcom, {
+      mesaId: m13.id,
+      numero: 30,
     });
-    await expect(juntarMesas(garcom, m14.id, [m15.id])).rejects.toMatchObject({
-      codigo: "mesa_com_pedidos",
+    await expect(
+      abrirComanda(garcom, { mesaId: m14.id, numero: 30 }),
+    ).rejects.toMatchObject({
+      codigo: "cartao_em_uso",
+      message: "O cartão 30 já está aberto na mesa 13.",
     } satisfies Partial<ErroDominio>);
+
+    // Garçom e caixa acham a comanda pelo número (código de barras).
+    expect(
+      await comandaPorNumero(garcom.funcionario.restauranteId, 30),
+    ).toMatchObject({ comandaId, mesaNumero: 13 });
+
+    await fecharComanda(garcom, comandaId);
+    await expect(
+      abrirComanda(garcom, { mesaId: m14.id, numero: 30 }),
+    ).resolves.toMatchObject({ numero: 30 });
   });
 
-  it("separa a mesa agrupada, mas não a principal", async () => {
-    const m12 = await mesa(12);
-    const m13 = await mesa(13);
-    await expect(separarMesa(garcom, m12.id)).rejects.toMatchObject({
-      codigo: "mesa_principal",
-    });
-    await separarMesa(garcom, m13.id);
-    const mapa = await listarMapa(garcom.funcionario.restauranteId);
-    expect(mapa.find((x) => x.numero === 13)?.status).toBe("livre");
-    // O item da mesa 13 continua na conta da comanda.
-    const detalhe = await detalharMesa(
-      garcom.funcionario.restauranteId,
-      m12.id,
-    );
-    expect(detalhe.comanda?.totalCentavos).toBe(1200);
+  it("cartão que não existe ou foi desativado não abre comanda", async () => {
+    const m15 = await mesa(15);
+    await expect(
+      abrirComanda(garcom, { mesaId: m15.id, numero: 999 }),
+    ).rejects.toMatchObject({ status: 404 });
   });
 
-  it("transfere a comanda inteira para uma mesa livre", async () => {
-    const m12 = await mesa(12);
+  it("transfere a comanda para outra mesa (mesmo ocupada), com os itens", async () => {
     const m16 = await mesa(16);
-    await transferirComanda(garcom, m12.id, m16.id);
-    const mapa = await listarMapa(garcom.funcionario.restauranteId);
-    expect(mapa.find((x) => x.numero === 12)?.status).toBe("livre");
-    expect(mapa.find((x) => x.numero === 16)?.status).toBe("ocupada");
-    expect(mapa.find((x) => x.numero === 16)?.totalCentavos).toBe(1200);
-  });
-
-  it("transferir com mesas juntas libera todas e leva a comanda para o destino", async () => {
     const m17 = await mesa(17);
-    const m18 = await mesa(18);
-    const m19 = await mesa(19);
-    const agua = await produto("Água sem Gás");
-    await lancarRodada(garcom, m17.id, {
-      idempotencyKey: chave(),
-      itens: [{ produtoId: agua.id, quantidade: 1, modificadorIds: [] }],
-    });
-    await juntarMesas(garcom, m17.id, [m18.id]);
-    await transferirComanda(garcom, m17.id, m19.id);
+    const a = await abrirComanda(garcom, { mesaId: m16.id, numero: 31 });
+    const b = await abrirComanda(garcom, { mesaId: m17.id, numero: 32 });
+    await lancarAgua(a.comandaId);
+    await lancarAgua(b.comandaId);
+
+    await transferirComanda(garcom, a.comandaId, m17.id);
     const mapa = await listarMapa(garcom.funcionario.restauranteId);
-    expect(mapa.find((x) => x.numero === 17)?.status).toBe("livre");
-    expect(mapa.find((x) => x.numero === 18)?.status).toBe("livre");
-    expect(mapa.find((x) => x.numero === 19)?.status).toBe("ocupada");
-    expect(mapa.find((x) => x.numero === 19)?.agrupadaCom).toEqual([]);
+    expect(mapa.find((x) => x.numero === 16)?.status).toBe("livre");
+    expect(
+      mapa.find((x) => x.numero === 17)?.comandas.map((c) => c.numero),
+    ).toEqual([31, 32]);
+    const detalhe = await detalharComanda(
+      garcom.funcionario.restauranteId,
+      a.comandaId,
+    );
+    expect(detalhe.mesa.numero).toBe(17);
+    // O item continua marcado com a mesa em que foi pedido.
+    expect(detalhe.comanda.rodadas[0].itens[0].mesaOrigem).toBe(16);
   });
 
-  it("fecha a comanda e libera todas as mesas dela", async () => {
-    const m10 = await mesa(10);
-    await fecharComanda(garcom, m10.id);
-    const mapa = await listarMapa(garcom.funcionario.restauranteId);
-    expect(mapa.find((x) => x.numero === 10)?.status).toBe("livre");
-    expect(mapa.find((x) => x.numero === 11)?.status).toBe("livre");
+  it("não lança em comanda já paga", async () => {
+    const m18 = await mesa(18);
+    const { comandaId } = await abrirComanda(garcom, {
+      mesaId: m18.id,
+      numero: 33,
+    });
+    await lancarAgua(comandaId);
+    await fecharComanda(garcom, comandaId);
+    await expect(lancarAgua(comandaId)).rejects.toMatchObject({
+      codigo: "comanda_fechada",
+    });
   });
 });

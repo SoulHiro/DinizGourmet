@@ -20,10 +20,12 @@ import { DrawerRevisao } from "./drawer-revisao";
 type MesaDaComanda = { id: string; numero: number };
 
 export const NovoPedido = ({
+  comandaId,
   mesaId,
   mesaNumero,
   mesas,
 }: {
+  comandaId: string;
   mesaId: string;
   mesaNumero: number;
   mesas: MesaDaComanda[];
@@ -31,7 +33,7 @@ export const NovoPedido = ({
   const router = useRouter();
   const queryClient = useQueryClient();
   const { data: categorias, isLoading } = useCardapio();
-  const carrinho = useCarrinho(mesaId);
+  const carrinho = useCarrinho(comandaId);
   const [busca, setBusca] = useState("");
   const [categoriaId, setCategoriaId] = useState<string | null>(null);
   const [produtoAberto, setProdutoAberto] = useState<ProdutoCardapio | null>(
@@ -82,7 +84,7 @@ export const NovoPedido = ({
 
   const lancar = useMutation({
     mutationFn: () =>
-      api<ResultadoRodada>(`/api/mesas/${mesaId}/rodadas`, {
+      api<ResultadoRodada>(`/api/comandas/${comandaId}/rodadas`, {
         method: "POST",
         json: {
           idempotencyKey: carrinho.idempotencyKey,
@@ -94,7 +96,8 @@ export const NovoPedido = ({
       carrinho.reiniciar();
       toast.success(`Mesa ${mesaNumero}: rodada ${resultado.numero} lançada`);
       queryClient.invalidateQueries({ queryKey: ["mesas"] });
-      router.push("/garcom");
+      // Volta para a mesa: fica fácil lançar o cartão do próximo cliente.
+      router.push(`/garcom/mesa/${mesaId}`);
     },
     onError: (error) => {
       if (error instanceof ErroApi) {

@@ -10,8 +10,14 @@ import type { Sessao } from "@/lib/auth/sessao";
 import { cancelarItem } from "@/lib/dominio/cancelamento";
 import { cardapioPublico, contaPublica } from "@/lib/dominio/cardapio-publico";
 import { miniatura, pastaMidia, salvarFoto } from "@/lib/dominio/midia";
-import { lancarRodada } from "@/lib/dominio/rodadas";
-import { chave, definirEstoque, mesa, produto, sessaoDe } from "./helpers";
+import {
+  chave,
+  definirEstoque,
+  lancarNaMesa,
+  mesa,
+  produto,
+  sessaoDe,
+} from "./helpers";
 
 let garcom: Sessao;
 const criados: string[] = [];
@@ -69,14 +75,14 @@ describe("minha conta (cliente)", () => {
     const vazia = await contaPublica(m2.tokenQr);
     expect(vazia).toMatchObject({ aberta: false, itens: [], totalCentavos: 0 });
 
-    const r = await lancarRodada(garcom, m2.id, {
+    const r = await lancarNaMesa(garcom, m2.id, {
       idempotencyKey: chave(),
       itens: [
         { produtoId: xis.id, quantidade: 2, modificadorIds: [] },
         { produtoId: agua.id, quantidade: 1, modificadorIds: [] },
       ],
     });
-    await lancarRodada(garcom, m3.id, {
+    await lancarNaMesa(garcom, m3.id, {
       idempotencyKey: chave(),
       itens: [{ produtoId: xis.id, quantidade: 1, modificadorIds: [] }],
     });

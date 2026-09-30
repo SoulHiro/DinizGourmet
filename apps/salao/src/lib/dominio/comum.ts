@@ -1,7 +1,7 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 
 import { type Db, schema, type Tx } from "@/db";
-import { naoEncontrado } from "@/lib/erros";
+import { conflito, naoEncontrado } from "@/lib/erros";
 
 type Conexao = Db | Tx;
 
@@ -25,9 +25,12 @@ export const buscarMesa = async (
   return mesa;
 };
 
-// Comanda aberta em que a mesa está agora (como principal ou agrupada).
-export const comandaAbertaDaMesa = async (conexao: Conexao, mesaId: string) => {
-  const [linha] = await conexao
+// Comandas abertas numa mesa (a mesa é só o lugar: pode ter várias).
+export const comandasAbertasDaMesa = async (
+  conexao: Conexao,
+  mesaId: string,
+) => {
+  const linhas = await conexao
     .select({ comanda: schema.comandas })
     .from(schema.comandaMesas)
     .innerJoin(
@@ -41,16 +44,36 @@ export const comandaAbertaDaMesa = async (conexao: Conexao, mesaId: string) => {
         eq(schema.comandas.status, "aberta"),
       ),
     )
-    .limit(1);
-  return linha?.comanda;
+    .orderBy(asc(schema.comandas.numero), asc(schema.comandas.abertaEm));
+  return linhas.map((l) => l.comanda);
 };
 
-// Mesas atuais da comanda, com a principal primeiro.
-export const mesasDaComanda = async (conexao: Conexao, comandaId: string) => {
+// Comanda aberta do restaurante (qualquer operação sobre ela passa por aqui).
+export const buscarComandaAberta = async (
+  conexao: Conexao,
+  restauranteId: string,
+  comandaId: string,
+) => {
   const [comanda] = await conexao
-    .select({ mesaPrincipalId: schema.comandas.mesaPrincipalId })
+    .select()
     .from(schema.comandas)
-    .where(eq(schema.comandas.id, comandaId));
+    .where(
+      and(
+        eq(schema.comandas.id, comandaId),
+        eq(schema.comandas.restauranteId, restauranteId),
+      ),
+    )
+    .limit(1);
+  if (!comanda) throw naoEncontrado("Comanda");
+  if (comanda.status !== "aberta") {
+    throw conflito("comanda_fechada", "Esta comanda já foi fechada.");
+  }
+  return comanda;
+};
+
+// Mesa em que a comanda está agora (uma por vez; na lista, para quem já
+// trabalhava com a lista de mesas da comanda).
+export const mesasDaComanda = async (conexao: Conexao, comandaId: string) => {
   const linhas = await conexao
     .select({ id: schema.mesas.id, numero: schema.mesas.numero })
     .from(schema.comandaMesas)
@@ -61,13 +84,8 @@ export const mesasDaComanda = async (conexao: Conexao, comandaId: string) => {
         isNull(schema.comandaMesas.saiuEm),
       ),
     )
-    .orderBy(asc(schema.mesas.numero));
-  return linhas
-    .map((mesa) => ({
-      ...mesa,
-      principal: mesa.id === comanda?.mesaPrincipalId,
-    }))
-    .sort((a, b) => Number(b.principal) - Number(a.principal));
+    .limit(1);
+  return linhas.map((mesa) => ({ ...mesa, principal: true }));
 };
 
 // Registra o garçom na comanda (titular ou auxiliar). Idempotente.

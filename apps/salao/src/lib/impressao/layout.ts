@@ -128,6 +128,23 @@ export const CATALOGO: Record<ModeloImpressao, BlocoCatalogo[]> = {
       ],
     },
     {
+      id: "comanda",
+      rotulo: "Número da comanda (cartão)",
+      estilos: TODOS,
+      padrao: {
+        ativo: true,
+        estilo: estilo({ tamanho: "grande", negrito: true, centro: true }),
+      },
+      opcoes: [
+        {
+          chave: "prefixo",
+          rotulo: "Texto antes do número",
+          tipo: "texto",
+          padrao: "COMANDA",
+        },
+      ],
+    },
+    {
       id: "detalhes",
       rotulo: "Rodada, garçom e horário",
       estilos: TODOS,
@@ -234,6 +251,23 @@ export const CATALOGO: Record<ModeloImpressao, BlocoCatalogo[]> = {
           rotulo: "Texto antes do número",
           tipo: "texto",
           padrao: "MESA",
+        },
+      ],
+    },
+    {
+      id: "comanda",
+      rotulo: "Número da comanda (cartão)",
+      estilos: TODOS,
+      padrao: {
+        ativo: true,
+        estilo: estilo({ tamanho: "grande", negrito: true, centro: true }),
+      },
+      opcoes: [
+        {
+          chave: "prefixo",
+          rotulo: "Texto antes do número",
+          tipo: "texto",
+          padrao: "COMANDA",
         },
       ],
     },
@@ -444,6 +478,11 @@ const nomeDaMesa = (mesas: number[], bloco: BlocoLayout) => {
   return `${prefixo ? `${prefixo} ` : ""}${principal}${agrupadas.length ? ` (+${agrupadas.join(", ")})` : ""}`;
 };
 
+const nomeDaComanda = (numero: number, bloco: BlocoLayout) => {
+  const prefixo = String(bloco.opcoes.prefixo ?? "").trim();
+  return `${prefixo ? `${prefixo} ` : ""}${numero}`;
+};
+
 // Linhas do ticket, na ordem e com o estilo do layout. Sem layout, usa o
 // padrão (testes e o spike de impressão).
 export const montarLinhas = (
@@ -455,6 +494,7 @@ export const montarLinhas = (
   if (tipo === "conta" && payload.conta) {
     return linhasDaConta(
       payload.mesas,
+      payload.comanda ?? null,
       payload.conta,
       normalizarLayout("conta", layout),
     );
@@ -495,6 +535,10 @@ export const montarLinhas = (
         break;
       case "mesa":
         linhas.push(texto(nomeDaMesa(payload.mesas, bloco), e));
+        break;
+      case "comanda":
+        if (payload.comanda)
+          linhas.push(texto(nomeDaComanda(payload.comanda, bloco), e));
         break;
       case "detalhes": {
         const partes = [
@@ -575,6 +619,7 @@ export const montarLinhas = (
 // comprovante (paga, com os pagamentos e o troco). Não é documento fiscal.
 const linhasDaConta = (
   mesas: number[],
+  comanda: number | null,
   conta: ContaImpressa,
   config: LayoutImpressao,
 ): Linha[] => {
@@ -615,6 +660,9 @@ const linhasDaConta = (
         break;
       case "mesa":
         linhas.push(texto(nomeDaMesa(mesas, bloco), e));
+        break;
+      case "comanda":
+        if (comanda) linhas.push(texto(nomeDaComanda(comanda, bloco), e));
         break;
       case "detalhes":
         if (bloco.opcoes.aberta) {
@@ -744,7 +792,8 @@ export const colunas = (esquerda: string, direita: string, largura: number) => {
 // Dados de exemplo para a pré-visualização e o "Imprimir teste" da tela de
 // layout: mostram todos os blocos (mesas juntas, adicionais, observação).
 export const exemploPedido = (): TicketPayload => ({
-  mesas: [5, 6],
+  mesas: [5],
+  comanda: 7,
   garcom: "Garçom A",
   rodada: 2,
   lancadaEm: new Date().toISOString(),
@@ -765,7 +814,7 @@ export const exemploPedido = (): TicketPayload => ({
       nome: "Batata Frita",
       modificadores: [],
       observacao: null,
-      mesaOrigem: 6,
+      mesaOrigem: 5,
     },
   ],
   motivo: "Cliente desistiu",
@@ -799,7 +848,7 @@ export const exemploConta = (
       totalCentavos: 9980,
       mesaOrigem: 5,
     },
-    { quantidade: 1, nome: "Batata Frita", totalCentavos: 2500, mesaOrigem: 6 },
+    { quantidade: 1, nome: "Batata Frita", totalCentavos: 2500, mesaOrigem: 5 },
     {
       quantidade: 3,
       nome: "Refrigerante Lata",
@@ -807,10 +856,7 @@ export const exemploConta = (
       mesaOrigem: 5,
     },
   ],
-  porMesa: [
-    { numero: 5, totalCentavos: 12080 },
-    { numero: 6, totalCentavos: 2500 },
-  ],
+  porMesa: [],
   subtotalCentavos: 14580,
   descontoCentavos: 0,
   descontoNome: null,

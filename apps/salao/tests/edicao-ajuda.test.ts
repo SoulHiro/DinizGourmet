@@ -13,11 +13,12 @@ import {
 import { listarCardapio } from "@/lib/dominio/cardapio";
 import { editarItem } from "@/lib/dominio/edicao";
 import { criarProduto } from "@/lib/dominio/gerencia";
-import { detalharMesa, listarMapa } from "@/lib/dominio/mesas";
-import { lancarRodada } from "@/lib/dominio/rodadas";
+import { listarMapa } from "@/lib/dominio/mesas";
 import {
   chave,
   definirEstoque,
+  detalheDaMesa,
+  lancarNaMesa,
   mesa,
   modificador,
   produto,
@@ -53,7 +54,7 @@ describe("editar item lançado", () => {
     const m = await mesa(1);
     const xis = await produto("Xis Bah Tchê! - Bacon");
     const semTomate = await modificador("Sem tomate");
-    const r = await lancarRodada(garcomA, m.id, {
+    const r = await lancarNaMesa(garcomA, m.id, {
       idempotencyKey: chave(),
       itens: [{ produtoId: xis.id, quantidade: 2, modificadorIds: [] }],
     });
@@ -89,7 +90,10 @@ describe("editar item lançado", () => {
     });
 
     // Na tela aparece só a versão nova, marcada como editada.
-    const detalhe = await detalharMesa(garcomA.funcionario.restauranteId, m.id);
+    const detalhe = await detalheDaMesa(
+      garcomA.funcionario.restauranteId,
+      m.id,
+    );
     const itensTela = detalhe.comanda?.rodadas[0].itens ?? [];
     expect(itensTela).toHaveLength(1);
     expect(itensTela[0]).toMatchObject({ quantidade: 1, editado: true });
@@ -98,7 +102,7 @@ describe("editar item lançado", () => {
   it("com o ticket já impresso, gera ticket de ALTERAÇÃO com antes e depois", async () => {
     const m = await mesa(2);
     const xis = await produto("Xis Buenas - Clássico");
-    const r = await lancarRodada(garcomA, m.id, {
+    const r = await lancarNaMesa(garcomA, m.id, {
       idempotencyKey: chave(),
       itens: [{ produtoId: xis.id, quantidade: 1, modificadorIds: [] }],
     });
@@ -125,7 +129,7 @@ describe("editar item lançado", () => {
     const m = await mesa(3);
     const cerveja = await produto("Cerveja Long Neck");
     await definirEstoque(cerveja.id, 5);
-    const r = await lancarRodada(garcomA, m.id, {
+    const r = await lancarNaMesa(garcomA, m.id, {
       idempotencyKey: chave(),
       itens: [{ produtoId: cerveja.id, quantidade: 2, modificadorIds: [] }],
     });
@@ -166,7 +170,7 @@ describe("editar item lançado", () => {
     const mal = await modificador("Mal passado");
     const bem = await modificador("Bem passado");
     await expect(
-      lancarRodada(garcomA, m.id, {
+      lancarNaMesa(garcomA, m.id, {
         idempotencyKey: chave(),
         itens: [
           {

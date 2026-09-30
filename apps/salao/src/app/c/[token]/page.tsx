@@ -11,6 +11,7 @@ import { cn, formatBRL } from "@/lib/utils";
 import { CardProduto } from "./_components/card-produto";
 import { DetalheProduto } from "./_components/detalhe-produto";
 import { FotoProduto } from "./_components/foto-produto";
+import { useIdentificacao } from "./_components/identificacao";
 import {
   type ContaPublica,
   type EscolhaConta,
@@ -24,6 +25,8 @@ type Cardapio = {
 
 type Status = {
   mesa: number;
+  comanda: number | null;
+  precisaCartao: boolean;
   chamados: {
     tipo: "garcom" | "conta";
     aceito: boolean;
@@ -44,6 +47,9 @@ export default function CardapioClientePage({
   const [busca, setBusca] = useState("");
   const [aberto, setAberto] = useState<ProdutoPublico | null>(null);
   const [verConta, setVerConta] = useState(false);
+  // Mesa com várias comandas: o cliente diz qual cartão é o dele.
+  const { ident, definir, esquecer, query } = useIdentificacao(token);
+  const sufixo = query ? `?${query}` : "";
 
   const cardapio = useQuery({
     queryKey: ["publico", token, "cardapio"],
@@ -54,21 +60,28 @@ export default function CardapioClientePage({
   });
   // Sem socket para o cliente: consulta periódica é suficiente aqui.
   const status = useQuery({
-    queryKey: ["publico", token, "status"],
-    queryFn: () => api<Status>(`/api/publico/mesa/${token}`),
+    queryKey: ["publico", token, "status", query],
+    queryFn: () => api<Status>(`/api/publico/mesa/${token}${sufixo}`),
     refetchInterval: 5_000,
     enabled: cardapio.isSuccess,
   });
   const conta = useQuery({
-    queryKey: ["publico", token, "conta"],
-    queryFn: () => api<ContaPublica>(`/api/publico/mesa/${token}/conta`),
+    queryKey: ["publico", token, "conta", query],
+    queryFn: () =>
+      api<ContaPublica>(`/api/publico/mesa/${token}/conta${sufixo}`),
+    // Número digitado errado (ou comanda já paga): pergunta de novo.
+    retry: (falhas, error) =>
+      !(error instanceof ErroApi && error.status === 404) && falhas < 2,
     refetchInterval: 10_000,
     enabled: cardapio.isSuccess,
   });
 
   const chamar = useMutation({
     mutationFn: (tipo: "garcom" | "conta") =>
-      api(`/api/publico/mesa/${token}`, { method: "POST", json: { tipo } }),
+      api(`/api/publico/mesa/${token}`, {
+        method: "POST",
+        json: { tipo, ...ident },
+      }),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["publico", token, "status"] }),
   });
@@ -76,7 +89,7 @@ export default function CardapioClientePage({
     mutationFn: (escolha: EscolhaConta) =>
       api(`/api/publico/mesa/${token}`, {
         method: "POST",
-        json: { tipo: "conta", ...escolha },
+        json: { tipo: "conta", ...escolha, ...ident },
       }),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["publico", token, "status"] }),
@@ -361,6 +374,11 @@ export default function CardapioClientePage({
         enviando={pedirConta.isPending}
         erro={pedirConta.error?.message}
         onPedirConta={(escolha) => pedirConta.mutate(escolha)}
+        cartaoInvalido={
+          conta.error instanceof ErroApi && conta.error.status === 404
+        }
+        onInformarCartao={(numero) => definir({ numero })}
+        onTrocarCartao={esquecer}
       />
     </div>
   );
