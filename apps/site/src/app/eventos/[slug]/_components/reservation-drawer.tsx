@@ -9,7 +9,12 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 
-import { eventoSans, eventoScript, eventoSerif } from "../evento-fonts";
+import {
+  eventoDisplay,
+  eventoSans,
+  eventoScript,
+  eventoSerif,
+} from "@/styles/evento-fonts";
 import { ReservationForm } from "./reservation-form";
 
 interface ReservationDrawerContextValue {
@@ -45,7 +50,7 @@ export const ReservationDrawerProvider = ({
       {children}
       <Drawer open={isOpen} onOpenChange={setIsOpen}>
         <DrawerContent
-          className={`evento-panel evento-sans border-t border-[var(--evento-gold)]/30 bg-[var(--evento-bg-deep)] sm:inset-x-auto sm:left-1/2 sm:mb-8 sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:rounded-lg sm:border ${eventoSerif.variable} ${eventoSans.variable} ${eventoScript.variable}`}
+          className={`evento-panel evento-sans border-t border-[var(--evento-gold)]/30 bg-[var(--evento-bg-deep)] sm:inset-x-auto sm:left-1/2 sm:mb-8 sm:w-full sm:max-w-md sm:-translate-x-1/2 sm:rounded-lg sm:border ${eventoSerif.variable} ${eventoSans.variable} ${eventoDisplay.variable} ${eventoScript.variable}`}
         >
           <DrawerHeader>
             <DrawerTitle className="evento-serif text-2xl text-[var(--evento-cream)]">
