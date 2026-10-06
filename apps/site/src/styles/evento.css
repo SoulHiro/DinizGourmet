@@ -1,14 +1,22 @@
-.evento-page {
-  --evento-bg: #120b0c;
-  --evento-bg-deep: #070405;
-  --evento-bg-lift: #241417;
-  --evento-gold: #ef2f63;
-  --evento-amber: #ff3f6e;
-  --evento-ember: #b81c46;
-  --evento-cream: #f5efe9;
-  --evento-cream-dim: rgb(245 239 233 / 78%);
-  --evento-hairline: rgb(239 47 99 / 25%);
+/* Identidade pública (link-in-bio, agenda e páginas de evento): o clima
+   dos cartazes da casa — preto quente, dourado, âmbar no que é ação e
+   vermelho só em selos e detalhes. Textura de grão por cima, nunca
+   atrapalhando a leitura. */
 
+.evento-page,
+.evento-panel {
+  --evento-bg: #0f0b08;
+  --evento-bg-deep: #070504;
+  --evento-bg-lift: #1c150f;
+  --evento-gold: #e2b44a;
+  --evento-amber: #f2a72e;
+  --evento-ember: #c8281e;
+  --evento-cream: #f6eee2;
+  --evento-cream-dim: rgb(246 238 226 / 74%);
+  --evento-hairline: rgb(226 180 74 / 22%);
+}
+
+.evento-page {
   background: var(--evento-bg);
   color: var(--evento-cream);
   position: relative;
@@ -21,11 +29,12 @@
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  opacity: 0.5;
+  opacity: 0.45;
   mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.4'/%3E%3C/svg%3E");
 }
 
+/* Luz de lâmpada de varal no alto e sombra embaixo, como nos cartazes. */
 .evento-page::after {
   content: "";
   position: fixed;
@@ -34,13 +43,13 @@
   pointer-events: none;
   background:
     radial-gradient(
-      ellipse 70% 55% at 78% 15%,
-      rgb(239 47 99 / 18%),
-      transparent 60%
+      ellipse 70% 45% at 50% -5%,
+      rgb(242 167 46 / 16%),
+      transparent 65%
     ),
     radial-gradient(
-      ellipse 90% 70% at 50% 110%,
-      rgb(0 0 0 / 65%),
+      ellipse 90% 70% at 50% 115%,
+      rgb(0 0 0 / 70%),
       transparent 60%
     );
 }
@@ -50,26 +59,17 @@
   z-index: 1;
 }
 
-/* Same palette as .evento-page, without the fixed grain/vignette layers —
-   for content portaled outside .evento-page's DOM subtree (e.g. Drawer). */
-.evento-panel {
-  --evento-bg: #120b0c;
-  --evento-bg-deep: #070405;
-  --evento-bg-lift: #241417;
-  --evento-gold: #ef2f63;
-  --evento-amber: #ff3f6e;
-  --evento-ember: #b81c46;
-  --evento-cream: #f5efe9;
-  --evento-cream-dim: rgb(245 239 233 / 78%);
-  --evento-hairline: rgb(239 47 99 / 25%);
-}
-
 .evento-serif {
   font-family: var(--font-evento-serif), Georgia, serif;
 }
 
 .evento-sans {
   font-family: var(--font-evento-sans), system-ui, sans-serif;
+}
+
+.evento-display {
+  font-family: var(--font-evento-display), Impact, sans-serif;
+  letter-spacing: 0.01em;
 }
 
 .evento-script {
@@ -85,4 +85,11 @@
     var(--evento-hairline) 80%,
     transparent
   );
+}
+
+/* Brilho dourado do botão principal (como o letreiro "Reserve sua mesa"). */
+.evento-cta-glow {
+  box-shadow:
+    0 0 0 1px rgb(242 167 46 / 55%),
+    0 10px 30px -10px rgb(242 167 46 / 65%);
 }
