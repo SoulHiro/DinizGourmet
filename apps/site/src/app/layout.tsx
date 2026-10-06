@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { Poppins } from "next/font/google";
 import "./globals.css";
-import { CartProvider } from "./(main)/menu/contexts/cart";
 import { Toaster } from "@/components/ui/sonner";
 
 const poppins = Poppins({
@@ -11,10 +10,10 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
-  title: "Diniz Gourmet",
+  title: "Xis Diniz",
   description:
-    "Restaurante especializado em pizzas e lanches, com um menu variado e delicioso.",
-  authors: [{ name: "Victo Matheus Dos Santos" }],
+    "Xis Gaúcho de verdade, música ao vivo e boa companhia. Confira os próximos eventos do Xis Diniz.",
+  authors: [{ name: "Victor Matheus Dos Santos" }],
 };
 
 export default function RootLayout({
@@ -25,7 +24,7 @@ export default function RootLayout({
   return (
     <html lang="pt-BR">
       <body className={`${poppins.className} antialiased`}>
-        <CartProvider>{children}</CartProvider>
+        {children}
         <Toaster theme="system" />
       </body>
     </html>
