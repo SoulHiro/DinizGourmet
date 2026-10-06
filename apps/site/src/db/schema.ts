@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   date,
@@ -255,6 +255,12 @@ export const events = pgTable("event", {
   startTime: time("start_time").notNull(),
   endTime: time("end_time"),
   location: text("location").notNull(),
+  // Cartaz do evento (URL no Vercel Blob ou em /public). Nulo = sem cartaz.
+  posterUrl: text("poster_url"),
+  // Ex.: Sertanejo, Forró, Piseiro.
+  genres: text("genres").array().notNull().default(sql`'{}'::text[]`),
+  // Selos do cartaz: Música ao vivo, Bebidas geladas...
+  highlights: text("highlights").array().notNull().default(sql`'{}'::text[]`),
   isActive: boolean("is_active").default(true).notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -284,3 +290,23 @@ export const eventReservationsRelations = relations(
     }),
   }),
 );
+
+// Botões do link-in-bio (/). O visual é fixo no código; o admin só mexe no
+// conteúdo: texto, link, ícone, ordem e se aparece.
+export const bioLinks = pgTable("bio_link", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  label: text("label").notNull(),
+  url: text("url").notNull(),
+  icon: text("icon").notNull().default("link"),
+  position: integer("position").notNull().default(0),
+  isVisible: boolean("is_visible").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Configurações simples do site (chave/valor). Ex.: cardapio_pdf_url.
+export const siteSettings = pgTable("site_setting", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});

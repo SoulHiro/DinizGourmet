@@ -47,3 +47,6 @@ dist/
 .tickets/
 !.env.example
 apps/salao/midia/
+
+# Uploads locais do site (em produção vão para o Vercel Blob)
+apps/site/public/uploads/
