@@ -32,7 +32,15 @@ export type ProdutoPublico = {
 
 export const cardapioPublico = async (token: string) => {
   const mesa = await mesaAtivaPorToken(token);
-  const categorias = await listarCardapio(mesa.restauranteId);
+  return {
+    mesa: mesa.numero,
+    categorias: await vitrineDoRestaurante(mesa.restauranteId),
+  };
+};
+
+// As categorias como o cliente vê (QR da mesa e prévia do gerente).
+export const vitrineDoRestaurante = async (restauranteId: string) => {
+  const categorias = await listarCardapio(restauranteId);
 
   const ids = categorias.flatMap((c) => c.produtos.map((p) => p.id));
   const extras = ids.length
@@ -49,40 +57,37 @@ export const cardapioPublico = async (token: string) => {
     : [];
   const porId = new Map(extras.map((e) => [e.id, e]));
 
-  return {
-    mesa: mesa.numero,
-    categorias: categorias
-      .map((categoria) => ({
-        id: categoria.id,
-        nome: categoria.nome,
-        produtos: categoria.produtos
-          // Indisponível por decisão do gerente some; esgotado por estoque aparece marcado.
-          .filter((p) => p.disponivel)
-          .map((p): ProdutoPublico => {
-            const extra = porId.get(p.id);
-            return {
-              id: p.id,
-              codigo: p.codigo,
-              nome: p.nome,
-              descricao: p.descricao,
-              precoCentavos: p.precoCentavos,
-              fotoUrl: extra?.fotoUrl ?? null,
-              miniaturaUrl: miniatura(extra?.fotoUrl ?? null),
-              videoUrl: extra?.videoUrl ?? null,
-              ingredientes: extra?.ingredientes ?? [],
-              destaque: extra?.destaque ?? false,
-              esgotado: p.esgotado,
-              adicionais: p.modificadores
-                .filter((m) => m.tipo === "adicional")
-                .map((m) => ({ nome: m.nome, precoCentavos: m.precoCentavos })),
-              opcoes: p.modificadores
-                .filter((m) => m.tipo !== "adicional")
-                .map((m) => m.nome),
-            };
-          }),
-      }))
-      .filter((c) => c.produtos.length > 0),
-  };
+  return categorias
+    .map((categoria) => ({
+      id: categoria.id,
+      nome: categoria.nome,
+      produtos: categoria.produtos
+        // Indisponível por decisão do gerente some; esgotado por estoque aparece marcado.
+        .filter((p) => p.disponivel)
+        .map((p): ProdutoPublico => {
+          const extra = porId.get(p.id);
+          return {
+            id: p.id,
+            codigo: p.codigo,
+            nome: p.nome,
+            descricao: p.descricao,
+            precoCentavos: p.precoCentavos,
+            fotoUrl: extra?.fotoUrl ?? null,
+            miniaturaUrl: miniatura(extra?.fotoUrl ?? null),
+            videoUrl: extra?.videoUrl ?? null,
+            ingredientes: extra?.ingredientes ?? [],
+            destaque: extra?.destaque ?? false,
+            esgotado: p.esgotado,
+            adicionais: p.modificadores
+              .filter((m) => m.tipo === "adicional")
+              .map((m) => ({ nome: m.nome, precoCentavos: m.precoCentavos })),
+            opcoes: p.modificadores
+              .filter((m) => m.tipo !== "adicional")
+              .map((m) => m.nome),
+          };
+        }),
+    }))
+    .filter((c) => c.produtos.length > 0);
 };
 
 // "Minha conta": o que já foi lançado na comanda do cliente, sem cancelados.

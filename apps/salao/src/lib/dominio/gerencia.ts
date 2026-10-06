@@ -1,11 +1,11 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { db, schema } from "@/db";
 import type { TicketPayload } from "@/db/schema";
 import { hashPin } from "@/lib/auth/pin";
-import { configTaxa } from "@/lib/dominio/comum";
-import { apagarMidia } from "@/lib/dominio/midia";
+import { configTaxa, inicioDaNoite } from "@/lib/dominio/comum";
+import { apagarMidia, miniatura } from "@/lib/dominio/midia";
 import type { MotivoSemTaxa } from "@/lib/dominio/taxa";
 import { conflito, naoEncontrado, violouConstraint } from "@/lib/erros";
 import { acordarImpressao, notificar, runtime } from "@/lib/runtime";
@@ -18,17 +18,43 @@ const pinSchema = z.string().regex(/^\d{4}$/, "O PIN tem 4 números.");
 
 // Cardápio
 export const listarProdutosGerencia = async (restauranteId: string) => {
-  const [categorias, produtos] = await Promise.all([
+  const [categorias, produtos, ligacoes] = await Promise.all([
     db()
       .select()
       .from(schema.categorias)
-      .where(eq(schema.categorias.restauranteId, restauranteId))
+      .where(
+        and(
+          eq(schema.categorias.restauranteId, restauranteId),
+          eq(schema.categorias.ativa, true),
+        ),
+      )
       .orderBy(asc(schema.categorias.ordem)),
     db()
       .select()
       .from(schema.produtos)
+      .where(
+        and(
+          eq(schema.produtos.restauranteId, restauranteId),
+          isNull(schema.produtos.arquivadoEm),
+        ),
+      )
+      .orderBy(
+        asc(schema.produtos.ordem),
+        asc(schema.produtos.codigo),
+        asc(schema.produtos.nome),
+      ),
+    db()
+      .select({
+        produtoId: schema.produtoModificadores.produtoId,
+        modificadorId: schema.produtoModificadores.modificadorId,
+      })
+      .from(schema.produtoModificadores)
+      .innerJoin(
+        schema.produtos,
+        eq(schema.produtos.id, schema.produtoModificadores.produtoId),
+      )
       .where(eq(schema.produtos.restauranteId, restauranteId))
-      .orderBy(asc(schema.produtos.codigo), asc(schema.produtos.nome)),
+      .orderBy(asc(schema.produtoModificadores.ordem)),
   ]);
   return categorias.map((categoria) => ({
     id: categoria.id,
@@ -44,15 +70,66 @@ export const listarProdutosGerencia = async (restauranteId: string) => {
         nome: p.nome,
         descricao: p.descricao,
         fotoUrl: p.fotoUrl,
+        miniaturaUrl: miniatura(p.fotoUrl),
         videoUrl: p.videoUrl,
         ingredientes: p.ingredientes,
         destaque: p.destaque,
         precoCentavos: p.precoCentavos,
+        custoCentavos: p.custoCentavos,
         disponivel: p.disponivel,
         controlaEstoque: p.controlaEstoque,
         estoque: p.estoque,
+        categoriaId: p.categoriaId,
+        modificadorIds: ligacoes
+          .filter((l) => l.produtoId === p.id)
+          .map((l) => l.modificadorId),
       })),
   }));
+};
+
+// Próxima posição no fim da categoria (item novo ou que mudou de categoria).
+const proximaOrdem = async (categoriaId: string) => {
+  const [linha] = await db()
+    .select({ maior: sql<number>`coalesce(max(${schema.produtos.ordem}), -1)` })
+    .from(schema.produtos)
+    .where(eq(schema.produtos.categoriaId, categoriaId));
+  return Number(linha?.maior ?? -1) + 1;
+};
+
+// Troca os chips de um produto mantendo a ordem em que vieram.
+export const definirChipsDoProduto = async (
+  restauranteId: string,
+  produtoId: string,
+  modificadorIds: string[],
+) => {
+  const validos = modificadorIds.length
+    ? (
+        await db()
+          .select({ id: schema.modificadores.id })
+          .from(schema.modificadores)
+          .where(
+            and(
+              inArray(schema.modificadores.id, modificadorIds),
+              eq(schema.modificadores.restauranteId, restauranteId),
+            ),
+          )
+      ).map((m) => m.id)
+    : [];
+  await db().transaction(async (tx) => {
+    await tx
+      .delete(schema.produtoModificadores)
+      .where(eq(schema.produtoModificadores.produtoId, produtoId));
+    const ordenados = modificadorIds.filter((id) => validos.includes(id));
+    if (ordenados.length) {
+      await tx.insert(schema.produtoModificadores).values(
+        ordenados.map((modificadorId, ordem) => ({
+          produtoId,
+          modificadorId,
+          ordem,
+        })),
+      );
+    }
+  });
 };
 
 const codigoSchema = z.number().int().min(1).max(9999);
@@ -132,6 +209,7 @@ export const criarProduto = async (
         nome: input.nome,
         buscaNormalizada: normalizarBusca(input.nome),
         precoCentavos: input.precoCentavos,
+        ordem: await proximaOrdem(input.categoriaId),
         controlaEstoque: input.controlaEstoque,
         estoque: input.controlaEstoque ? (input.estoque ?? 0) : null,
       })
@@ -163,29 +241,74 @@ export const editarProdutoSchema = z.object({
   destaque: z.boolean().optional(),
   codigo: codigoSchema.nullable().optional(),
   precoCentavos: z.number().int().min(0).max(1_000_000).optional(),
+  // Custo de uma unidade (nulo = não informado).
+  custoCentavos: z.number().int().min(0).max(1_000_000).nullable().optional(),
   disponivel: z.boolean().optional(),
   controlaEstoque: z.boolean().optional(),
   // Contagem definida no início da noite.
   estoque: z.number().int().min(0).max(100_000).nullable().optional(),
   categoriaId: z.uuid().optional(),
+  // Chips que aparecem para este item, na ordem.
+  modificadorIds: z.array(z.uuid()).max(60).optional(),
 });
 
 export const editarProduto = async (
   restauranteId: string,
   produtoId: string,
-  input: z.infer<typeof editarProdutoSchema>,
+  { modificadorIds, ...input }: z.infer<typeof editarProdutoSchema>,
 ) => {
   try {
     const [anterior] = await db()
       .select({
         fotoUrl: schema.produtos.fotoUrl,
         videoUrl: schema.produtos.videoUrl,
+        categoriaId: schema.produtos.categoriaId,
+        codigo: schema.produtos.codigo,
       })
       .from(schema.produtos)
-      .where(eq(schema.produtos.id, produtoId));
+      .where(
+        and(
+          eq(schema.produtos.id, produtoId),
+          eq(schema.produtos.restauranteId, restauranteId),
+        ),
+      );
+    if (!anterior) throw naoEncontrado("Produto");
+
+    // Mudou de categoria: vai para o fim dela e, se o código não cabe na
+    // faixa nova, ganha o próximo livre de lá.
+    const mudanca: { ordem?: number; codigo?: number | null } = {};
+    if (input.categoriaId && input.categoriaId !== anterior.categoriaId) {
+      mudanca.ordem = await proximaOrdem(input.categoriaId);
+      if (input.codigo === undefined) {
+        const [nova] = await db()
+          .select()
+          .from(schema.categorias)
+          .where(
+            and(
+              eq(schema.categorias.id, input.categoriaId),
+              eq(schema.categorias.restauranteId, restauranteId),
+            ),
+          );
+        if (!nova) throw naoEncontrado("Categoria");
+        const cabe =
+          anterior.codigo !== null &&
+          nova.codigoInicio !== null &&
+          nova.codigoFim !== null &&
+          anterior.codigo >= nova.codigoInicio &&
+          anterior.codigo <= nova.codigoFim;
+        if (!cabe && nova.codigoInicio !== null) {
+          mudanca.codigo = await proximoCodigoLivre(
+            restauranteId,
+            input.categoriaId,
+          );
+        }
+      }
+    }
+
     const [produto] = await db()
       .update(schema.produtos)
       .set({
+        ...mudanca,
         ...input,
         ...(input.nome
           ? { buscaNormalizada: normalizarBusca(input.nome) }
@@ -200,6 +323,9 @@ export const editarProduto = async (
       )
       .returning();
     if (!produto) throw naoEncontrado("Produto");
+    if (modificadorIds) {
+      await definirChipsDoProduto(restauranteId, produtoId, modificadorIds);
+    }
     // Foto ou vídeo trocado/removido: apaga o arquivo antigo da pasta.
     for (const campo of ["fotoUrl", "videoUrl"] as const) {
       if (anterior?.[campo] && anterior[campo] !== produto[campo]) {
@@ -213,8 +339,66 @@ export const editarProduto = async (
   }
 };
 
+// Produto nunca vendido sai de vez (com foto e vídeo). Já vendido fica
+// arquivado: some do cardápio, libera o código e segue no histórico.
+export const excluirProduto = async (
+  restauranteId: string,
+  produtoId: string,
+) => {
+  const resultado = await db().transaction(async (tx) => {
+    const [produto] = await tx
+      .select({
+        id: schema.produtos.id,
+        fotoUrl: schema.produtos.fotoUrl,
+        videoUrl: schema.produtos.videoUrl,
+      })
+      .from(schema.produtos)
+      .where(
+        and(
+          eq(schema.produtos.id, produtoId),
+          eq(schema.produtos.restauranteId, restauranteId),
+          isNull(schema.produtos.arquivadoEm),
+        ),
+      )
+      .for("update");
+    if (!produto) throw naoEncontrado("Produto");
+
+    const [vendido] = await tx
+      .select({ id: schema.itensPedido.id })
+      .from(schema.itensPedido)
+      .where(eq(schema.itensPedido.produtoId, produtoId))
+      .limit(1);
+
+    if (vendido) {
+      await tx
+        .update(schema.produtos)
+        .set({
+          arquivadoEm: new Date(),
+          codigo: null,
+          disponivel: false,
+          destaque: false,
+        })
+        .where(eq(schema.produtos.id, produtoId));
+      return { arquivado: true, midia: [] as string[] };
+    }
+
+    await tx.delete(schema.produtos).where(eq(schema.produtos.id, produtoId));
+    return {
+      arquivado: false,
+      midia: [produto.fotoUrl, produto.videoUrl].filter((u): u is string =>
+        Boolean(u),
+      ),
+    };
+  });
+
+  for (const url of resultado.midia) await apagarMidia(url);
+  notificar(restauranteId, ["cardapio"]);
+  return { arquivado: resultado.arquivado };
+};
+
 export const editarCategoriaSchema = z
   .object({
+    nome: z.string().trim().min(2).max(40).optional(),
     impressoraId: z.uuid().nullable().optional(),
     codigoInicio: codigoSchema.nullable().optional(),
     codigoFim: codigoSchema.nullable().optional(),
@@ -302,6 +486,7 @@ export const editarMesa = async (
 };
 
 // Equipe
+// Com quem está conectado agora (sessão válida) e o último acesso.
 export const listarEquipe = (restauranteId: string) =>
   db()
     .select({
@@ -310,6 +495,13 @@ export const listarEquipe = (restauranteId: string) =>
       papel: schema.funcionarios.papel,
       ativo: schema.funcionarios.ativo,
       bloqueadoAte: schema.funcionarios.bloqueadoAte,
+      conectado: sql<boolean>`exists (
+        select 1 from sessao s
+         where s.funcionario_id = "funcionario"."id"
+           and s.revogada_em is null and s.expira_em > now())`,
+      ultimoAcesso: sql<string | null>`(
+        select to_json(max(s.criado_em)) #>> '{}' from sessao s
+         where s.funcionario_id = "funcionario"."id")`,
     })
     .from(schema.funcionarios)
     .where(eq(schema.funcionarios.restauranteId, restauranteId))
@@ -342,14 +534,31 @@ export const editarFuncionarioSchema = z.object({
   papel: z.enum(["garcom", "gerente", "caixa"]).optional(),
   ativo: z.boolean().optional(),
   pin: pinSchema.optional(),
+  // Libera quem errou o PIN demais, sem trocar o PIN.
+  desbloquear: z.literal(true).optional(),
+  // Desconecta de todos os aparelhos (celular perdido, troca de turno).
+  desconectar: z.literal(true).optional(),
 });
 
 export const editarFuncionario = async (
   restauranteId: string,
   funcionarioId: string,
   input: z.infer<typeof editarFuncionarioSchema>,
+  // Quem está editando: o gerente não pode se trancar para fora.
+  editorId?: string,
 ) => {
-  const { pin, ...resto } = input;
+  const { pin, desbloquear, desconectar, ...resto } = input;
+  if (
+    editorId === funcionarioId &&
+    (input.ativo === false ||
+      (input.papel !== undefined && input.papel !== "gerente") ||
+      desconectar)
+  ) {
+    throw conflito(
+      "proprio_gerente",
+      "Você não pode desativar, desconectar ou tirar o papel de gerente de você mesmo.",
+    );
+  }
   const [funcionario] = await db()
     .update(schema.funcionarios)
     .set({
@@ -362,6 +571,7 @@ export const editarFuncionario = async (
             bloqueadoAte: null,
           }
         : {}),
+      ...(desbloquear ? { tentativasFalhas: 0, bloqueadoAte: null } : {}),
     })
     .where(
       and(
@@ -371,7 +581,7 @@ export const editarFuncionario = async (
     )
     .returning({ id: schema.funcionarios.id });
   if (!funcionario) throw naoEncontrado("Funcionário");
-  if (input.ativo === false) {
+  if (input.ativo === false || desconectar || input.papel) {
     await db()
       .update(schema.sessoes)
       .set({ revogadaEm: new Date() })
@@ -460,16 +670,7 @@ export const impressorasDoSistema = async () =>
 
 // "Noite" = desde o meio-dia (horário de Brasília): o salão abre às 18h e
 // fecha de madrugada, então a virada do dia não pode partir o expediente.
-export const inicioDaNoite = (agora = new Date()) => {
-  const brasilia = new Date(
-    agora.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }),
-  );
-  const diferenca = agora.getTime() - brasilia.getTime();
-  const inicio = new Date(brasilia);
-  if (brasilia.getHours() < 12) inicio.setDate(inicio.getDate() - 1);
-  inicio.setHours(12, 0, 0, 0);
-  return new Date(inicio.getTime() + diferenca);
-};
+export { inicioDaNoite } from "./comum";
 
 export type ResumoGarcom = {
   funcionarioId: string;
@@ -487,6 +688,8 @@ export type ResumoGarcom = {
 export const resumoNoite = async (
   restauranteId: string,
   desde = inicioDaNoite(),
+  // Fim do período (noite já encerrada); sem ele, vai até agora.
+  ate = new Date("9999-12-31T00:00:00Z"),
 ) => {
   const linhas = (
     await db().execute<{
@@ -504,31 +707,31 @@ export const resumoNoite = async (
              coalesce((
                select sum(i.total_centavos) from rodada r
                  join item_pedido i on i.rodada_id = r.id and i.status = 'ativo'
-                where r.funcionario_id = f.id and r.lancada_em >= ${desde}
+                where r.funcionario_id = f.id and r.lancada_em >= ${desde} and r.lancada_em < ${ate}
              ), 0)::int as vendas,
              coalesce((
                select sum(g.valor_centavos) from gorjeta_divisao g
                  join comanda c on c.id = g.comanda_id
                 where g.funcionario_id = f.id and g.tipo = 'gorjeta'
-                  and c.fechada_em >= ${desde}
+                  and c.fechada_em >= ${desde} and c.fechada_em < ${ate}
              ), 0)::int as gorjeta,
              coalesce((
                select sum(g.valor_centavos) from gorjeta_divisao g
                  join comanda c on c.id = g.comanda_id
                 where g.funcionario_id = f.id and g.tipo = 'taxa'
-                  and c.fechada_em >= ${desde}
+                  and c.fechada_em >= ${desde} and c.fechada_em < ${ate}
              ), 0)::int as taxa,
              (select count(*) from comanda c
-               where c.fechada_por = f.id and c.fechada_em >= ${desde}
+               where c.fechada_por = f.id and c.fechada_em >= ${desde} and c.fechada_em < ${ate}
                  and c.sem_taxa_motivo is not null)::int as sem_taxa,
              coalesce((
                select sum(c.desconto_centavos) from comanda c
-                where c.fechada_por = f.id and c.fechada_em >= ${desde}
+                where c.fechada_por = f.id and c.fechada_em >= ${desde} and c.fechada_em < ${ate}
              ), 0)::int as desconto,
              (select count(*) from chamado ch
-               where ch.aceito_por = f.id and ch.aceito_em >= ${desde})::int as chamados,
+               where ch.aceito_por = f.id and ch.aceito_em >= ${desde} and ch.aceito_em < ${ate})::int as chamados,
              (select count(*) from item_pedido i
-               where i.cancelado_por = f.id and i.cancelado_em >= ${desde}
+               where i.cancelado_por = f.id and i.cancelado_em >= ${desde} and i.cancelado_em < ${ate}
                  and i.motivo_cancelamento <> 'Alterado')::int as cancelamentos
         from funcionario f
        where f.restaurante_id = ${restauranteId}
@@ -569,7 +772,7 @@ export const resumoNoite = async (
       select sem_taxa_motivo as motivo, count(*)::int as quantidade,
              array_remove(array_agg(sem_taxa_observacao), null) as observacoes
         from comanda
-       where restaurante_id = ${restauranteId} and fechada_em >= ${desde}
+       where restaurante_id = ${restauranteId} and fechada_em >= ${desde} and fechada_em < ${ate}
          and sem_taxa_motivo is not null
        group by sem_taxa_motivo
        order by quantidade desc
