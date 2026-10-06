@@ -129,3 +129,16 @@ export const subtotalDaComanda = async (
     );
   return itens.reduce((s, i) => s + i.total, 0);
 };
+
+// Início da noite de serviço: meio-dia (Brasília) de hoje, ou de ontem se
+// ainda não deu meio-dia. Base do painel e dos limites por noite.
+export const inicioDaNoite = (agora = new Date()) => {
+  const brasilia = new Date(
+    agora.toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }),
+  );
+  const diferenca = agora.getTime() - brasilia.getTime();
+  const inicio = new Date(brasilia);
+  if (brasilia.getHours() < 12) inicio.setDate(inicio.getDate() - 1);
+  inicio.setHours(12, 0, 0, 0);
+  return new Date(inicio.getTime() + diferenca);
+};

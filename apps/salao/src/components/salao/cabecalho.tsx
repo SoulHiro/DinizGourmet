@@ -8,19 +8,26 @@ import { useTheme } from "next-themes";
 import { useFuncionario } from "@/components/providers/sessao";
 import { useConexao } from "@/components/providers/tempo-real";
 import { api } from "@/lib/cliente";
-import { cn } from "@/lib/utils";
 import { BadgeImpressao } from "./badge-impressao";
+
+export const sairDoSistema = async () => {
+  await api("/api/auth/logout", { method: "POST" }).catch(() => {});
+  window.location.href = "/garcom/login";
+};
 
 export const Cabecalho = ({
   titulo,
   subtitulo,
   voltarPara,
   acoes,
+  menu,
 }: {
   titulo: string;
   subtitulo?: string;
   voltarPara?: string;
   acoes?: React.ReactNode;
+  // Substitui os botões de tema e sair (a gerência leva os dois para um menu).
+  menu?: React.ReactNode;
 }) => {
   const conexao = useConexao();
   // Impressão é automática; só o gerente acompanha a fila e reenvia falhas.
@@ -35,11 +42,6 @@ export const Cabecalho = ({
         ? { href: "/caixa", rotulo: "Voltar para o caixa", Icone: Wallet }
         : null;
   const { resolvedTheme, setTheme } = useTheme();
-
-  const sair = async () => {
-    await api("/api/auth/logout", { method: "POST" }).catch(() => {});
-    window.location.href = "/garcom/login";
-  };
 
   return (
     <header className="sticky top-0 z-30 bg-marca pt-[env(safe-area-inset-top)] text-marca-foreground">
@@ -61,18 +63,14 @@ export const Cabecalho = ({
             <p className="truncate text-sm opacity-80">{subtitulo}</p>
           )}
         </div>
-        <span
-          role="status"
-          aria-label={
-            conexao === "online" ? "Conectado" : "Sem conexão em tempo real"
-          }
-          className={cn(
-            "mx-1 size-3 rounded-full",
-            conexao === "online"
-              ? "bg-status-livre"
-              : "animate-pulse bg-status-conta",
-          )}
-        />
+        {/* Conectado é o normal: só aparece algo quando cai. */}
+        {conexao !== "online" && (
+          <span
+            role="status"
+            aria-label="Sem conexão em tempo real"
+            className="mx-1 size-3 animate-pulse rounded-full bg-status-conta"
+          />
+        )}
         {acoes}
         {painel && (
           <Link
@@ -85,26 +83,32 @@ export const Cabecalho = ({
           </Link>
         )}
         {podeVerImpressao && <BadgeImpressao />}
-        <button
-          type="button"
-          aria-label="Alternar tema claro/escuro"
-          onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-          className="flex size-12 items-center justify-center"
-        >
-          {/* Pelo CSS, não pelo tema: no servidor o tema ainda não é conhecido
+        {menu ?? (
+          <>
+            <button
+              type="button"
+              aria-label="Alternar tema claro/escuro"
+              onClick={() =>
+                setTheme(resolvedTheme === "dark" ? "light" : "dark")
+              }
+              className="flex size-12 items-center justify-center"
+            >
+              {/* Pelo CSS, não pelo tema: no servidor o tema ainda não é conhecido
               e escolher o ícone em JS quebrava a hidratação. */}
-          <Sun className="hidden dark:block" />
-          <Moon className="dark:hidden" />
-        </button>
-        {!voltarPara && (
-          <button
-            type="button"
-            aria-label="Sair"
-            onClick={sair}
-            className="flex size-12 items-center justify-center"
-          >
-            <LogOut />
-          </button>
+              <Sun className="hidden dark:block" />
+              <Moon className="dark:hidden" />
+            </button>
+            {!voltarPara && (
+              <button
+                type="button"
+                aria-label="Sair"
+                onClick={sairDoSistema}
+                className="flex size-12 items-center justify-center"
+              >
+                <LogOut />
+              </button>
+            )}
+          </>
         )}
       </div>
       {conexao === "offline" && (

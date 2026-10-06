@@ -1,93 +1,81 @@
 "use client";
 
-import { LayoutGrid, Wallet } from "lucide-react";
-import Link from "next/link";
-import { useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { useFuncionario } from "@/components/providers/sessao";
 import { Cabecalho } from "@/components/salao/cabecalho";
 import { cn } from "@/lib/utils";
-import {
-  GerenciaEquipe,
-  GerenciaImpressoras,
-  GerenciaMesas,
-} from "./_components/cadastros";
+import { GerenciaImpressoras, GerenciaMesas } from "./_components/cadastros";
 import { GerenciaCardapio } from "./_components/cardapio";
 import { GerenciaCartoes } from "./_components/cartoes";
-import { GerenciaDescontos, GerenciaEstoque } from "./_components/estoque";
+import { GerenciaDescontos } from "./_components/descontos";
+import { GerenciaEquipe } from "./_components/equipe";
+import { GerenciaEstoque } from "./_components/estoque";
+import {
+  ABAS,
+  type Aba,
+  AbasTopo,
+  AtalhosTopo,
+  NavegacaoInferior,
+} from "./_components/navegacao";
 import { ResumoNoite } from "./_components/noite";
-import { PersonalizarPapel } from "./_components/papel";
+import { RelatorioDeProdutos } from "./_components/produtos";
 
-const ABAS = [
-  { valor: "noite", rotulo: "Noite" },
-  { valor: "estoque", rotulo: "Estoque" },
-  { valor: "cardapio", rotulo: "Cardápio" },
-  { valor: "descontos", rotulo: "Descontos" },
-  { valor: "mesas", rotulo: "Mesas" },
-  { valor: "cartoes", rotulo: "Cartões" },
-  { valor: "equipe", rotulo: "Equipe" },
-  { valor: "impressoras", rotulo: "Impressoras" },
-  { valor: "papel", rotulo: "Papel" },
-] as const;
-
-type Aba = (typeof ABAS)[number]["valor"];
+// Abas com lista em duas colunas no computador.
+const LARGAS: Aba[] = [
+  "noite",
+  "cardapio",
+  "estoque",
+  "descontos",
+  "cartoes",
+  "equipe",
+  "produtos",
+];
 
 export default function GerentePage() {
   const funcionario = useFuncionario();
-  const [aba, setAba] = useState<Aba>("noite");
+  const router = useRouter();
+  const pathname = usePathname();
+  // A aba fica no endereço (?aba=estoque): recarregar ou voltar do salão
+  // cai na mesma seção.
+  const parametro = useSearchParams().get("aba");
+  const aba: Aba = ABAS.some((a) => a.valor === parametro)
+    ? (parametro as Aba)
+    : "noite";
+  const irPara = (nova: Aba) => {
+    router.replace(nova === "noite" ? pathname : `${pathname}?aba=${nova}`, {
+      scroll: false,
+    });
+    window.scrollTo({ top: 0 });
+  };
+  const atual = ABAS.find((a) => a.valor === aba);
 
   return (
-    <div className="min-h-dvh pb-10">
+    <div className="min-h-dvh pb-24 md:pb-10">
       <Cabecalho
         titulo="Gerência"
-        subtitulo={funcionario.nome}
-        acoes={
-          <>
-            <Link
-              href="/caixa"
-              aria-label="Abrir o caixa"
-              className="flex size-12 items-center justify-center"
-            >
-              <Wallet />
-            </Link>
-            <Link
-              href="/garcom"
-              aria-label="Ir para o mapa de mesas"
-              className="flex size-12 items-center justify-center"
-            >
-              <LayoutGrid />
-            </Link>
-          </>
-        }
+        subtitulo={atual?.rotulo}
+        acoes={<AtalhosTopo nome={funcionario.nome} />}
+        menu={<span className="w-1" />}
       />
-      <nav className="flex overflow-x-auto border-borda border-b bg-surface">
-        {ABAS.map(({ valor, rotulo }) => (
-          <button
-            key={valor}
-            type="button"
-            onClick={() => setAba(valor)}
-            className={cn(
-              "h-12 shrink-0 border-b-4 px-4 font-semibold",
-              aba === valor
-                ? "border-acao"
-                : "border-transparent text-texto-secundario",
-            )}
-          >
-            {rotulo}
-          </button>
-        ))}
-      </nav>
-      <main className="mx-auto max-w-3xl p-3">
+      <AbasTopo aba={aba} onAba={irPara} />
+      <main
+        className={cn(
+          "mx-auto p-3",
+          LARGAS.includes(aba) ? "max-w-6xl" : "max-w-3xl",
+        )}
+      >
         {aba === "noite" && <ResumoNoite />}
         {aba === "estoque" && <GerenciaEstoque />}
         {aba === "cardapio" && <GerenciaCardapio />}
+        {aba === "produtos" && <RelatorioDeProdutos />}
         {aba === "descontos" && <GerenciaDescontos />}
         {aba === "mesas" && <GerenciaMesas />}
         {aba === "cartoes" && <GerenciaCartoes />}
         {aba === "equipe" && <GerenciaEquipe />}
         {aba === "impressoras" && <GerenciaImpressoras />}
-        {aba === "papel" && <PersonalizarPapel />}
       </main>
+      <NavegacaoInferior aba={aba} onAba={irPara} nome={funcionario.nome} />
     </div>
   );
 }
