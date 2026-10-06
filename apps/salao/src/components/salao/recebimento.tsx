@@ -6,8 +6,12 @@ import {
   CreditCard,
   Landmark,
   Loader2,
+  Lock,
+  Minus,
+  Plus,
   QrCode,
   Ticket,
+  Users,
   X,
 } from "lucide-react";
 import { useState } from "react";
@@ -113,6 +117,8 @@ export const Recebimento = ({
   );
   const [descontoLivre, setDescontoLivre] = useState("");
   const [linhas, setLinhas] = useState<Linha[]>([]);
+  // Dividir igualmente: cada forma de pagamento tocada recebe uma parte.
+  const [partes, setPartes] = useState(1);
 
   const { data: descontos = [] } = useQuery({
     queryKey: ["descontos"],
@@ -159,14 +165,31 @@ export const Recebimento = ({
     (!semTaxaMotivo || (semTaxaMotivo === "outro" && !semTaxaObs.trim()));
   const pronto = total === 0 || (situacao.fecha && linhas.length > 0);
 
+  // Parte de cada um (os centavos que sobram ficam com o último).
+  const parte = partes > 1 ? Math.floor(total / partes) : 0;
   const adicionar = (metodo: MetodoPagamento) =>
-    setLinhas((atual) => [
-      // A que estava automática congela no valor atual.
-      ...atual.map((l) =>
-        l.valor === null ? { ...l, valor: paraTexto(valorDaLinha(l)) } : l,
-      ),
-      { id: Date.now(), metodo, valor: null, recebido: "" },
-    ]);
+    setLinhas((atual) => {
+      if (partes > 1) {
+        // Até a penúltima parte o valor é fixo; a última pega o que falta.
+        const ultima = atual.length >= partes - 1;
+        return [
+          ...atual,
+          {
+            id: Date.now(),
+            metodo,
+            valor: ultima ? null : paraTexto(parte),
+            recebido: "",
+          },
+        ];
+      }
+      return [
+        // A que estava automática congela no valor atual.
+        ...atual.map((l) =>
+          l.valor === null ? { ...l, valor: paraTexto(valorDaLinha(l)) } : l,
+        ),
+        { id: Date.now(), metodo, valor: null, recebido: "" },
+      ];
+    });
   const mudar = (id: number, campos: Partial<Linha>) =>
     setLinhas((atual) =>
       atual.map((l) => (l.id === id ? { ...l, ...campos } : l)),
@@ -331,16 +354,38 @@ export const Recebimento = ({
             >
               Sem desconto
             </Button>
-            {descontos.map((d) => (
-              <Button
-                key={d.id}
-                variant={descontoEscolhido === d.id ? "marca" : "outline"}
-                onClick={() => setDescontoEscolhido(d.id)}
-              >
-                {d.nome} ·{" "}
-                {d.tipo === "percentual" ? `${d.valor}%` : formatBRL(d.valor)}
-              </Button>
-            ))}
+            {descontos.map((d) => {
+              // Travado para o garçom ou já usado o máximo da noite.
+              const travado = d.somenteGerente && !podeDescontoLivre;
+              const esgotado =
+                d.limitePorNoite !== null && d.usosHoje >= d.limitePorNoite;
+              return (
+                <Button
+                  key={d.id}
+                  variant={descontoEscolhido === d.id ? "marca" : "outline"}
+                  disabled={travado || esgotado}
+                  title={
+                    travado
+                      ? "Só o gerente ou o caixa aplicam este desconto"
+                      : esgotado
+                        ? "Limite desta noite atingido"
+                        : undefined
+                  }
+                  onClick={() => setDescontoEscolhido(d.id)}
+                >
+                  {travado && <Lock className="size-4" />}
+                  {d.nome} ·{" "}
+                  {d.tipo === "percentual" ? `${d.valor}%` : formatBRL(d.valor)}
+                  {d.limitePorNoite !== null && (
+                    <span className="font-normal text-xs opacity-70">
+                      {esgotado
+                        ? "esgotado"
+                        : `resta ${d.limitePorNoite - d.usosHoje}`}
+                    </span>
+                  )}
+                </Button>
+              );
+            })}
             {podeDescontoLivre && (
               <Button
                 variant={descontoEscolhido === "livre" ? "marca" : "outline"}
@@ -383,10 +428,58 @@ export const Recebimento = ({
 
       {total > 0 && (
         <div>
+          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-borda bg-surface p-2">
+            <span className="flex items-center gap-1.5 pl-1 font-semibold text-sm">
+              <Users className="size-4" /> Dividir em
+            </span>
+            <div className="flex items-center rounded-lg border border-borda bg-fundo">
+              <button
+                type="button"
+                aria-label="Menos pessoas"
+                disabled={partes <= 1}
+                onClick={() => {
+                  setPartes((p) => Math.max(1, p - 1));
+                  setLinhas([]);
+                }}
+                className="flex size-10 items-center justify-center disabled:opacity-30"
+              >
+                <Minus className="size-4" />
+              </button>
+              <span className="w-8 text-center font-bold text-lg tabular-nums">
+                {partes}
+              </span>
+              <button
+                type="button"
+                aria-label="Mais pessoas"
+                disabled={partes >= 20}
+                onClick={() => {
+                  setPartes((p) => Math.min(20, p + 1));
+                  setLinhas([]);
+                }}
+                className="flex size-10 items-center justify-center disabled:opacity-30"
+              >
+                <Plus className="size-4" />
+              </button>
+            </div>
+            <span className="text-sm text-texto-secundario">
+              {partes > 1 ? (
+                <>
+                  <strong className="text-texto">{formatBRL(parte)}</strong>{" "}
+                  cada
+                  {total - parte * partes > 0 &&
+                    ` (o último paga ${formatBRL(total - parte * (partes - 1))})`}
+                </>
+              ) : (
+                "pessoa"
+              )}
+            </span>
+          </div>
           <p className="mb-2 font-semibold">
             Forma de pagamento{" "}
             <span className="font-normal text-sm text-texto-secundario">
-              (toque em mais de uma para dividir)
+              {partes > 1
+                ? `(toque uma vez para cada pessoa: ${Math.min(linhas.length, partes)}/${partes})`
+                : "(toque em mais de uma para dividir)"}
             </span>
           </p>
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">

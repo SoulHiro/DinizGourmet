@@ -32,6 +32,17 @@ export const useDetalheComanda = (comandaId: string) =>
     queryFn: () => api<DetalheComanda>(`/api/comandas/${comandaId}`),
   });
 
+// Mais pedidos e observações frequentes (atalhos do lançamento).
+export const useSugestoesPedido = () =>
+  useQuery({
+    queryKey: ["cardapio", "sugestoes"],
+    queryFn: () =>
+      api<{ maisPedidos: string[]; observacoes: string[] }>(
+        "/api/cardapio/sugestoes",
+      ),
+    staleTime: 10 * 60_000,
+  });
+
 export const useCardapio = () =>
   useQuery({
     queryKey: ["cardapio"],

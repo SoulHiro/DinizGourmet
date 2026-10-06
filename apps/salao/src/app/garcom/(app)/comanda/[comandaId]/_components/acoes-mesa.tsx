@@ -33,7 +33,14 @@ type Modo = "menu" | "transferir" | "fechar";
 
 // Menu da comanda: ajuda (da mesa), imprimir a conta, trocar de mesa e
 // receber o pagamento.
-export const AcoesComanda = ({ detalhe }: { detalhe: DetalheComanda }) => {
+export const AcoesComanda = ({
+  detalhe,
+  abrirReceber = 0,
+}: {
+  detalhe: DetalheComanda;
+  // Muda a cada toque em "Receber" fora do menu (faixa e rodapé da Conta).
+  abrirReceber?: number;
+}) => {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { data: mapa } = useMapa();
@@ -62,6 +69,10 @@ export const AcoesComanda = ({ detalhe }: { detalhe: DetalheComanda }) => {
       router.replace(pathname);
     }
   }, []);
+
+  useEffect(() => {
+    if (abrirReceber > 0) setModo("fechar");
+  }, [abrirReceber]);
 
   const atualizar = () =>
     queryClient.invalidateQueries({ queryKey: ["mesas"] });

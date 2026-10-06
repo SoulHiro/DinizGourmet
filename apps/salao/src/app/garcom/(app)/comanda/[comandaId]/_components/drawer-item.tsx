@@ -25,12 +25,15 @@ export const DrawerItem = ({
   mesaAtualId,
   onFechar,
   onAdicionar,
+  sugestoesObservacao = [],
 }: {
   produto: ProdutoCardapio | null;
   mesas: MesaDaComanda[];
   mesaAtualId: string;
   onFechar: () => void;
   onAdicionar: (linha: Omit<LinhaCarrinho, "chave">) => void;
+  // Observações que mais aparecem (um toque preenche).
+  sugestoesObservacao?: string[];
 }) => {
   const [quantidade, setQuantidade] = useState(1);
   const [selecionados, setSelecionados] = useState<string[]>([]);
@@ -109,15 +112,39 @@ export const DrawerItem = ({
           )}
 
           {mostrarObservacao ? (
-            <input
-              // biome-ignore lint/a11y/noAutofocus: o campo só aparece depois de um toque do usuário nele
-              autoFocus
-              value={observacao}
-              maxLength={140}
-              onChange={(e) => setObservacao(e.target.value)}
-              placeholder="Ex.: bem passado, molho à parte"
-              className="h-12 rounded-lg border border-borda bg-surface px-3 text-base"
-            />
+            <div className="flex flex-col gap-2">
+              <input
+                // biome-ignore lint/a11y/noAutofocus: o campo só aparece depois de um toque do usuário nele
+                autoFocus
+                value={observacao}
+                maxLength={140}
+                onChange={(e) => setObservacao(e.target.value)}
+                placeholder="Ex.: bem passado, molho à parte"
+                className="h-12 rounded-lg border border-borda bg-surface px-3 text-base"
+              />
+              {sugestoesObservacao.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {sugestoesObservacao.map((texto) => (
+                    <button
+                      key={texto}
+                      type="button"
+                      onClick={() =>
+                        setObservacao((atual) =>
+                          atual.includes(texto)
+                            ? atual
+                            : atual
+                              ? `${atual}, ${texto}`
+                              : texto,
+                        )
+                      }
+                      className="min-h-10 rounded-full border border-borda px-3 text-sm text-texto-secundario active:bg-borda/40"
+                    >
+                      {texto}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           ) : (
             <Button
               variant="ghost"

@@ -3,6 +3,7 @@
 import { createContext, useContext } from "react";
 import { AlertasAjuda } from "@/components/salao/alertas-ajuda";
 import type { FuncionarioSessao } from "@/lib/auth/sessao";
+import { RegistrarServiceWorker } from "./service-worker";
 import { TempoRealProvider } from "./tempo-real";
 
 const SessaoContext = createContext<FuncionarioSessao | null>(null);
@@ -24,6 +25,7 @@ export const AreaAutenticada = ({
     <TempoRealProvider>
       {children}
       <AlertasAjuda />
+      <RegistrarServiceWorker />
     </TempoRealProvider>
   </SessaoContext.Provider>
 );

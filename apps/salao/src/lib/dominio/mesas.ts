@@ -17,6 +17,7 @@ import {
   buscarMesa,
   comandasAbertasDaMesa,
   configTaxa,
+  inicioDaNoite,
   mesasDaComanda,
   registrarGarcom,
   subtotalDaComanda,
@@ -42,6 +43,8 @@ export type MesaMapa = {
   comandas: { id: string; numero: number | null }[];
   // Garçons titulares das comandas da mesa.
   garcons: string[];
+  // Titulares e auxiliares (filtro "Minhas mesas").
+  garcomIds: string[];
   // Da comanda mais antiga da mesa.
   abertaEm: string | null;
   ultimaRodadaEm: string | null;
@@ -57,6 +60,7 @@ export const listarMapa = async (
     numero: number;
     comandas: { id: string; numero: number | null }[] | null;
     garcons: string[] | null;
+    garcom_ids: string[] | null;
     aberta_em: Date | null;
     rodadas: number;
     ultima_rodada_em: Date | null;
@@ -65,7 +69,7 @@ export const listarMapa = async (
     total: number;
   }>(sql`
     select m.id, m.numero,
-           ab.comandas, ab.garcons, ab.aberta_em,
+           ab.comandas, ab.garcons, ab.garcom_ids, ab.aberta_em,
            coalesce(ab.rodadas, 0)::int as rodadas, ab.ultima_rodada_em,
            coalesce(ab.total, 0)::int as total,
            exists (
@@ -83,6 +87,11 @@ export const listarMapa = async (
         select json_agg(json_build_object('id', c.id, 'numero', c.numero)
                         order by c.numero nulls first, c.aberta_em) as comandas,
                array_agg(distinct f.nome) as garcons,
+               -- Titular e auxiliares: base do filtro "Minhas mesas".
+               array(select distinct x from unnest(
+                 array_agg(c.garcom_titular_id) ||
+                 coalesce(array_agg(aux.funcionario_id) filter (where aux.funcionario_id is not null), '{}')
+               ) as x) as garcom_ids,
                min(c.aberta_em) as aberta_em,
                sum((select count(*) from rodada r where r.comanda_id = c.id)) as rodadas,
                max((select max(r.lancada_em) from rodada r where r.comanda_id = c.id)) as ultima_rodada_em,
@@ -91,6 +100,7 @@ export const listarMapa = async (
           from comanda_mesa cm
           join comanda c on c.id = cm.comanda_id and c.status = 'aberta'
           join funcionario f on f.id = c.garcom_titular_id
+          left join comanda_garcom aux on aux.comanda_id = c.id
          where cm.mesa_id = m.id and cm.saiu_em is null
       ) ab on true
      where m.restaurante_id = ${restauranteId} and m.ativa
@@ -115,6 +125,7 @@ export const listarMapa = async (
                 : "aguardando",
       comandas,
       garcons: linha.garcons ?? [],
+      garcomIds: linha.garcom_ids ?? [],
       abertaEm: linha.aberta_em
         ? new Date(linha.aberta_em).toISOString()
         : null,
@@ -135,6 +146,8 @@ export type ComandaDaMesa = {
   totalCentavos: number;
   rodadas: number;
   pediuConta: boolean;
+  // "2× Xis Bagual, 3× Heineken 600ml" (o que já foi pedido).
+  resumo: string | null;
 };
 
 export type MesaComComandas = Awaited<ReturnType<typeof detalharMesa>>;
@@ -150,8 +163,14 @@ export const detalharMesa = async (restauranteId: string, mesaId: string) => {
     total: number;
     rodadas: number;
     pediu_conta: boolean;
+    resumo: string | null;
   }>(sql`
     select c.id, c.numero, f.nome as titular, c.aberta_em,
+           (select string_agg(q || '× ' || nome, ', ' order by q desc, nome)
+              from (select i.nome_produto as nome, sum(i.quantidade) as q
+                      from item_pedido i
+                     where i.comanda_id = c.id and i.status = 'ativo'
+                     group by i.nome_produto) itens) as resumo,
            coalesce((select sum(i.total_centavos) from item_pedido i
                       where i.comanda_id = c.id and i.status = 'ativo'), 0)::int as total,
            (select count(*) from rodada r where r.comanda_id = c.id)::int as rodadas,
@@ -174,6 +193,7 @@ export const detalharMesa = async (restauranteId: string, mesaId: string) => {
         totalCentavos: l.total,
         rodadas: l.rodadas,
         pediuConta: l.pediu_conta,
+        resumo: l.resumo,
       }),
     ),
   };
@@ -633,6 +653,30 @@ export const fecharComanda = async (
           ),
         );
       if (!cadastrado) throw naoEncontrado("Desconto");
+      if (
+        cadastrado.somenteGerente &&
+        !["gerente", "caixa"].includes(sessao.funcionario.papel)
+      ) {
+        throw conflito(
+          "desconto_so_gerente",
+          `O desconto "${cadastrado.nome}" só o gerente ou o caixa aplicam.`,
+        );
+      }
+      if (cadastrado.limitePorNoite !== null) {
+        const [{ usos }] = (
+          await tx.execute<{ usos: number }>(
+            sql`select count(*)::int as usos from comanda
+                 where desconto_id = ${cadastrado.id}
+                   and fechada_em >= ${inicioDaNoite()}`,
+          )
+        ).rows;
+        if (usos >= cadastrado.limitePorNoite) {
+          throw conflito(
+            "desconto_esgotado",
+            `O desconto "${cadastrado.nome}" já foi usado ${usos} vez(es) hoje (limite da noite).`,
+          );
+        }
+      }
       desconto = {
         centavos: valorDoDesconto(cadastrado, subtotalCentavos),
         nome: cadastrado.nome,

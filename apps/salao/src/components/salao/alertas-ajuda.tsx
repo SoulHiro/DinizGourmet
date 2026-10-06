@@ -8,6 +8,11 @@ import { toast } from "sonner";
 
 import { useFuncionario } from "@/components/providers/sessao";
 import { Button } from "@/components/ui/button";
+import {
+  notificarSistema,
+  tocarAlerta,
+  useManterTelaLigada,
+} from "@/lib/avisos";
 import { api } from "@/lib/cliente";
 import type { PedidoAjuda } from "@/lib/dominio/ajuda";
 import type { Chamado } from "@/lib/dominio/chamados";
@@ -34,14 +39,25 @@ export const useChamados = () =>
     refetchInterval: 20_000,
   });
 
-// Vibra quando aparece um alerta novo (não no primeiro carregamento).
-const useVibrarComNovos = (ids: string[]) => {
+type Aviso = { id: string; titulo: string; urgente: boolean };
+
+// Alerta novo (não no primeiro carregamento): vibra, toca o som e, com o
+// app em segundo plano, mostra a notificação do sistema.
+const useAvisarNovos = (avisos: Aviso[]) => {
   const vistos = useRef<Set<string> | null>(null);
-  const chave = ids.join(",");
+  const chave = avisos.map((a) => a.id).join(",");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a chave resume a lista
   useEffect(() => {
-    const atuais = new Set(chave ? chave.split(",") : []);
-    if (vistos.current && [...atuais].some((id) => !vistos.current?.has(id))) {
-      navigator.vibrate?.([250, 120, 250]);
+    const atuais = new Set(avisos.map((a) => a.id));
+    if (vistos.current) {
+      const novos = avisos.filter((a) => !vistos.current?.has(a.id));
+      if (novos.length) {
+        navigator.vibrate?.([250, 120, 250]);
+        tocarAlerta(novos.some((a) => a.urgente));
+        if (document.visibilityState !== "visible") {
+          for (const a of novos) notificarSistema("Xis Diniz", a.titulo);
+        }
+      }
     }
     vistos.current = atuais;
   }, [chave]);
@@ -83,9 +99,21 @@ export const AlertasAjuda = () => {
   );
   const chamadosMeus = chamados.filter((c) => c.aceitoPorId === eu.id);
 
-  useVibrarComNovos([
-    ...ajudasParaMim.map((p) => p.id),
-    ...chamadosNaFila.map((c) => c.id),
+  useManterTelaLigada();
+  useAvisarNovos([
+    ...ajudasParaMim.map((p) => ({
+      id: p.id,
+      titulo: `Mesa ${p.mesaNumero}: um colega pediu ajuda`,
+      urgente: false,
+    })),
+    ...chamadosNaFila.map((c) => ({
+      id: c.id,
+      titulo:
+        c.tipo === "conta"
+          ? `Mesa ${c.mesaNumero} pediu a conta`
+          : `Mesa ${c.mesaNumero} chamou o garçom`,
+      urgente: c.tipo === "conta",
+    })),
   ]);
 
   const atualizar = () => {

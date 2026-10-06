@@ -14,3 +14,21 @@ export const STATUS_MESA: Record<
   chamado: { rotulo: "Chamou garçom", classe: "bg-status-chamado text-black" },
   conta: { rotulo: "Pediu a conta", classe: "bg-status-conta text-white" },
 };
+
+// Mesa ocupada sem pedido novo há tanto tempo pode estar esperando alguém
+// (garçom e caixa usam o mesmo critério).
+export const MINUTOS_PARADA = 40;
+
+export const mesaParada = (
+  mesa: {
+    status: StatusMesa;
+    ultimaRodadaEm: string | null;
+    abertaEm: string | null;
+  },
+  agora: number,
+) => {
+  if (mesa.status !== "ocupada" && mesa.status !== "aguardando") return false;
+  const desde = mesa.ultimaRodadaEm ?? mesa.abertaEm;
+  if (!desde) return false;
+  return (agora - new Date(desde).getTime()) / 60_000 >= MINUTOS_PARADA;
+};
