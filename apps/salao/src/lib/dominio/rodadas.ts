@@ -106,6 +106,7 @@ export const lancarRodada = async (
           codigo: schema.produtos.codigo,
           nome: schema.produtos.nome,
           precoCentavos: schema.produtos.precoCentavos,
+          custoCentavos: schema.produtos.custoCentavos,
           disponivel: schema.produtos.disponivel,
           controlaEstoque: schema.produtos.controlaEstoque,
           impressoraId: schema.categorias.impressoraId,
@@ -244,6 +245,7 @@ export const lancarRodada = async (
             quantidade: item.quantidade,
             nomeProduto: produto.nome,
             precoUnitarioCentavos: produto.precoCentavos,
+            custoUnitarioCentavos: produto.custoCentavos,
             totalCentavos:
               (produto.precoCentavos + adicionais) * item.quantidade,
             impressoraId: produto.impressoraId,
