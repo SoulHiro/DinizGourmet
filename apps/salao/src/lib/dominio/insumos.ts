@@ -1,9 +1,10 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { db, schema } from "@/db";
 import { conflito, naoEncontrado, violouConstraint } from "@/lib/erros";
 import { notificar } from "@/lib/runtime";
+import { inicioDaNoite } from "./comum";
 
 // Gestão do estoque por insumo e dos descontos pré-cadastrados (/gerente).
 
@@ -58,9 +59,20 @@ export const listarInsumos = async (restauranteId: string) => {
         id: schema.produtos.id,
         nome: schema.produtos.nome,
         codigo: schema.produtos.codigo,
+        categoria: schema.categorias.nome,
       })
       .from(schema.produtos)
-      .where(eq(schema.produtos.restauranteId, restauranteId))
+      .innerJoin(
+        schema.categorias,
+        eq(schema.categorias.id, schema.produtos.categoriaId),
+      )
+      .where(
+        and(
+          eq(schema.produtos.restauranteId, restauranteId),
+          isNull(schema.produtos.arquivadoEm),
+          eq(schema.categorias.ativa, true),
+        ),
+      )
       .orderBy(asc(schema.produtos.codigo), asc(schema.produtos.nome)),
   ]);
 
@@ -226,6 +238,10 @@ export type Desconto = {
   tipo: "percentual" | "valor";
   valor: number;
   ativo: boolean;
+  somenteGerente: boolean;
+  limitePorNoite: number | null;
+  // Quantas vezes já foi usado nesta noite.
+  usosHoje: number;
 };
 
 export const listarDescontos = (restauranteId: string, soAtivos = false) =>
@@ -236,6 +252,12 @@ export const listarDescontos = (restauranteId: string, soAtivos = false) =>
       tipo: schema.descontos.tipo,
       valor: schema.descontos.valor,
       ativo: schema.descontos.ativo,
+      somenteGerente: schema.descontos.somenteGerente,
+      limitePorNoite: schema.descontos.limitePorNoite,
+      usosHoje: sql<number>`(
+        select count(*)::int from comanda c
+         where c.desconto_id = "desconto"."id"
+           and c.fechada_em >= ${inicioDaNoite()})`,
     })
     .from(schema.descontos)
     .where(
@@ -251,6 +273,8 @@ export const criarDescontoSchema = z
     nome: z.string().trim().min(1).max(40),
     tipo: z.enum(["percentual", "valor"]),
     valor: z.number().int().min(1).max(1_000_000),
+    somenteGerente: z.boolean().default(false),
+    limitePorNoite: z.number().int().min(1).max(1000).nullable().default(null),
   })
   .refine((d) => d.tipo !== "percentual" || d.valor <= 100, {
     message: "Percentual vai até 100.",
@@ -258,7 +282,7 @@ export const criarDescontoSchema = z
 
 export const criarDesconto = async (
   restauranteId: string,
-  dados: z.infer<typeof criarDescontoSchema>,
+  dados: z.input<typeof criarDescontoSchema>,
 ) => {
   const [desconto] = await db()
     .insert(schema.descontos)
@@ -267,25 +291,94 @@ export const criarDesconto = async (
   return desconto;
 };
 
-export const editarDescontoSchema = z.object({ ativo: z.boolean() });
+export const editarDescontoSchema = z.object({
+  ativo: z.boolean().optional(),
+  nome: z.string().trim().min(1).max(40).optional(),
+  tipo: z.enum(["percentual", "valor"]).optional(),
+  valor: z.number().int().min(1).max(1_000_000).optional(),
+  somenteGerente: z.boolean().optional(),
+  limitePorNoite: z.number().int().min(1).max(1000).nullable().optional(),
+});
 
+// O fechamento guarda nome e valor do desconto na comanda: editar aqui não
+// muda conta já recebida.
 export const editarDesconto = async (
   restauranteId: string,
   descontoId: string,
-  ativo: boolean,
+  dados: z.infer<typeof editarDescontoSchema>,
+) =>
+  db().transaction(async (tx) => {
+    const [atual] = await tx
+      .select()
+      .from(schema.descontos)
+      .where(
+        and(
+          eq(schema.descontos.id, descontoId),
+          eq(schema.descontos.restauranteId, restauranteId),
+        ),
+      )
+      .for("update");
+    if (!atual) throw naoEncontrado("Desconto");
+    const tipo = dados.tipo ?? atual.tipo;
+    const valor = dados.valor ?? atual.valor;
+    if (tipo === "percentual" && valor > 100) {
+      throw conflito("percentual_invalido", "Percentual vai até 100.");
+    }
+    const [desconto] = await tx
+      .update(schema.descontos)
+      .set({ ...dados, tipo, valor })
+      .where(eq(schema.descontos.id, descontoId))
+      .returning();
+    return desconto;
+  });
+
+// Desconto já usado em alguma comanda não sai (a comanda aponta para ele):
+// nesse caso o certo é desativar.
+export const excluirDesconto = async (
+  restauranteId: string,
+  descontoId: string,
 ) => {
-  const [desconto] = await db()
-    .update(schema.descontos)
-    .set({ ativo })
+  const [usado] = await db()
+    .select({ id: schema.comandas.id })
+    .from(schema.comandas)
+    .where(eq(schema.comandas.descontoId, descontoId))
+    .limit(1);
+  if (usado) {
+    throw conflito(
+      "desconto_usado",
+      "Este desconto já foi usado em comandas. Desative em vez de excluir.",
+    );
+  }
+  const [apagado] = await db()
+    .delete(schema.descontos)
     .where(
       and(
         eq(schema.descontos.id, descontoId),
         eq(schema.descontos.restauranteId, restauranteId),
       ),
     )
-    .returning();
-  if (!desconto) throw naoEncontrado("Desconto");
-  return desconto;
+    .returning({ id: schema.descontos.id });
+  if (!apagado) throw naoEncontrado("Desconto");
+  return apagado;
 };
 
 export { valorDoDesconto } from "./taxa";
+
+// Contagem que não faz mais sentido (bebida que saiu): a receita vai junto.
+export const excluirInsumo = async (
+  restauranteId: string,
+  insumoId: string,
+) => {
+  const [apagado] = await db()
+    .delete(schema.insumos)
+    .where(
+      and(
+        eq(schema.insumos.id, insumoId),
+        eq(schema.insumos.restauranteId, restauranteId),
+      ),
+    )
+    .returning({ id: schema.insumos.id });
+  if (!apagado) throw naoEncontrado("Contagem");
+  notificar(restauranteId, ["cardapio"]);
+  return apagado;
+};

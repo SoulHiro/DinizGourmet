@@ -12,6 +12,11 @@ export const PATCH = rota<Contexto>(async (request, { params }) => {
   const { id } = await params;
   const input = await lerJson(request, editarFuncionarioSchema);
   return Response.json(
-    await editarFuncionario(funcionario.restauranteId, id, input),
+    await editarFuncionario(
+      funcionario.restauranteId,
+      id,
+      input,
+      funcionario.id,
+    ),
   );
 });
