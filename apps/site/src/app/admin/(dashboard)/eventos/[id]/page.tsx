@@ -1,4 +1,5 @@
 import { desc, eq } from "drizzle-orm";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import {
@@ -47,10 +48,20 @@ const EventoDetailPage = async ({ params }: EventoDetailPageProps) => {
           </p>
         </div>
 
-        <ReservaFormSheet
-          eventId={event.id}
-          trigger={<Button>Nova reserva</Button>}
-        />
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button asChild variant="ghost">
+            <Link href={`/eventos/${event.slug}`} target="_blank">
+              Ver página
+            </Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link href={`/admin/eventos/${event.id}/editar`}>Editar</Link>
+          </Button>
+          <ReservaFormSheet
+            eventId={event.id}
+            trigger={<Button>Nova reserva</Button>}
+          />
+        </div>
       </div>
 
       <Card>
