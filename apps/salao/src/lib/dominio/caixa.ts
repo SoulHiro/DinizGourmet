@@ -413,7 +413,9 @@ export const detalheDaConta = async (
       .where(eq(schema.comandaGarcons.comandaId, comandaId)),
     db()
       .select({
+        id: schema.pagamentos.id,
         metodo: schema.pagamentos.metodo,
+        metodoOriginal: schema.pagamentos.metodoOriginal,
         valorCentavos: schema.pagamentos.valorCentavos,
         recebidoCentavos: schema.pagamentos.recebidoCentavos,
         trocoCentavos: schema.pagamentos.trocoCentavos,
@@ -452,6 +454,8 @@ export const detalheDaConta = async (
     abertaEm: comanda.abertaEm.toISOString(),
     fechadaEm: comanda.fechadaEm?.toISOString() ?? null,
     recebidoPor: fechadaPor[0]?.nome ?? null,
+    reabertaEm: comanda.reabertaEm?.toISOString() ?? null,
+    reabertaMotivo: comanda.reabertaMotivo,
     equipe,
     conta,
     semTaxaMotivo: comanda.semTaxaMotivo as MotivoSemTaxa | null,
@@ -531,8 +535,43 @@ export const resumoCaixa = async (restauranteId: string, data?: string) => {
       ),
   ]);
 
-  const [{ abertas }] = await db()
-    .select({ abertas: sql<number>`count(*)::int` })
+  // Recebido por hora (Brasília) e o total do turno anterior, para comparar.
+  const [porHora, anterior, motivosSemTaxa] = await Promise.all([
+    db().execute<{ hora: number; centavos: number }>(sql`
+      select extract(hour from p.criado_em at time zone 'America/Sao_Paulo')::int as hora,
+             sum(p.valor_centavos)::int as centavos
+        from pagamento p
+        join comanda c on c.id = p.comanda_id
+       where p.restaurante_id = ${restauranteId}
+         and c.fechada_em >= ${desde} and c.fechada_em < ${ate}
+       group by 1
+    `),
+    db().execute<{ total: number; contas: number }>(sql`
+      select coalesce(sum(coalesce((select sum(i.total_centavos) from item_pedido i
+               where i.comanda_id = c.id and i.status = 'ativo'), 0)
+               - coalesce(c.desconto_centavos, 0) + coalesce(c.taxa_servico_centavos, 0)
+               + coalesce(c.gorjeta_centavos, 0)), 0)::int as total,
+             count(*)::int as contas
+        from comanda c
+       where c.restaurante_id = ${restauranteId} and c.status = 'fechada'
+         and c.fechada_em >= ${new Date(desde.getTime() - 24 * 3600 * 1000)}
+         and c.fechada_em < ${desde}
+    `),
+    db().execute<{ motivo: MotivoSemTaxa; quantidade: number }>(sql`
+      select sem_taxa_motivo as motivo, count(*)::int as quantidade
+        from comanda
+       where restaurante_id = ${restauranteId} and sem_taxa_motivo is not null
+         and fechada_em >= ${desde} and fechada_em < ${ate}
+       group by 1 order by 2 desc
+    `),
+  ]);
+
+  const [{ abertas, emAberto }] = await db()
+    .select({
+      abertas: sql<number>`count(*)::int`,
+      emAberto: sql<number>`coalesce(sum((select sum(i.total_centavos) from item_pedido i
+        where i.comanda_id = comanda.id and i.status = 'ativo')), 0)::int`,
+    })
     .from(schema.comandas)
     .where(
       and(
@@ -548,6 +587,11 @@ export const resumoCaixa = async (restauranteId: string, data?: string) => {
     ate: ate.toISOString(),
     contas: totais.contas,
     contasAbertasAgora: abertas,
+    emAbertoCentavos: emAberto,
+    anteriorTotalCentavos: anterior.rows[0]?.total ?? 0,
+    anteriorContas: anterior.rows[0]?.contas ?? 0,
+    porHora: porHora.rows,
+    motivosSemTaxa: motivosSemTaxa.rows,
     consumoCentavos: totais.consumo,
     descontoCentavos: totais.desconto,
     taxaCentavos: totais.taxa,

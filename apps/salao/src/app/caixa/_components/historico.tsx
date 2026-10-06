@@ -1,10 +1,24 @@
 "use client";
 
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { Loader2, Printer, X } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Banknote,
+  CheckCircle2,
+  CreditCard,
+  Loader2,
+  Printer,
+  QrCode,
+  Receipt,
+  ReceiptText,
+  RotateCcw,
+  Ticket,
+  Wallet,
+  X,
+} from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { useFuncionario } from "@/components/providers/sessao";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/cliente";
 import type { ContaHistorico, DetalheConta } from "@/lib/dominio/caixa";
@@ -36,6 +50,14 @@ const dataHora = (iso: string) =>
     timeZone: "America/Sao_Paulo",
   });
 
+const ICONE_METODO: Record<MetodoPagamento, typeof Banknote> = {
+  dinheiro: Banknote,
+  pix: QrCode,
+  credito: CreditCard,
+  debito: CreditCard,
+  vale_refeicao: Ticket,
+};
+
 const ROTULO_STATUS = {
   aberta: { texto: "Aberta", classe: "bg-status-ocupada text-white" },
   fechada: { texto: "Paga", classe: "bg-status-livre text-white" },
@@ -53,17 +75,25 @@ export const HistoricoContas = () => {
     comanda: "",
   });
   const [aberta, setAberta] = useState<string | null>(null);
+  // Filtros na tela (não precisam ir ao servidor).
+  const [status, setStatus] = useState<ContaHistorico["status"] | null>(null);
+  const [metodo, setMetodo] = useState<MetodoPagamento | null>(null);
 
   const parametros = new URLSearchParams(
     Object.entries(filtro).filter(([, v]) => v !== ""),
   ).toString();
-  const { data = [], isFetching } = useQuery({
+  const { data: todas = [], isFetching } = useQuery({
     queryKey: ["mesas", "caixa", "historico", parametros],
     queryFn: () => api<ContaHistorico[]>(`/api/caixa/historico?${parametros}`),
     enabled: Boolean(filtro.data),
   });
 
+  const data = todas
+    .filter((c) => !status || c.status === status)
+    .filter((c) => !metodo || c.metodos.includes(metodo));
   const pagas = data.filter((c) => c.status === "fechada");
+  const totalPago = pagas.reduce((s, c) => s + c.totalCentavos, 0);
+  const metodosDoDia = [...new Set(todas.flatMap((c) => c.metodos))];
 
   return (
     <div className="flex flex-col gap-4">
@@ -138,13 +168,93 @@ export const HistoricoContas = () => {
         )}
       </div>
 
-      <p className="text-texto-secundario">
-        {data.length} {data.length === 1 ? "conta" : "contas"} abertas no
-        período · {pagas.length} pagas ·{" "}
-        <strong className="text-texto">
-          {formatBRL(pagas.reduce((s, c) => s + c.totalCentavos, 0))}
-        </strong>
-      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {(
+          [
+            [null, "Todas"],
+            ["fechada", "Pagas"],
+            ["aberta", "Abertas"],
+            ["cancelada", "Sem consumo"],
+          ] as const
+        ).map(([valor, rotulo]) => (
+          <button
+            key={rotulo}
+            type="button"
+            aria-pressed={status === valor}
+            onClick={() => setStatus(valor)}
+            className={cn(
+              "h-9 rounded-full border px-3 font-semibold text-sm",
+              status === valor
+                ? "border-texto bg-texto text-fundo"
+                : "border-borda bg-surface text-texto-secundario",
+            )}
+          >
+            {rotulo}
+            <span className="ml-1.5 opacity-70">
+              {valor
+                ? todas.filter((c) => c.status === valor).length
+                : todas.length}
+            </span>
+          </button>
+        ))}
+        {metodosDoDia.length > 0 && (
+          <span className="mx-1 w-px self-stretch bg-borda" />
+        )}
+        {metodosDoDia.map((m) => {
+          const Icone = ICONE_METODO[m];
+          return (
+            <button
+              key={m}
+              type="button"
+              aria-pressed={metodo === m}
+              onClick={() => setMetodo((atual) => (atual === m ? null : m))}
+              className={cn(
+                "flex h-9 items-center gap-1.5 rounded-full border px-3 font-semibold text-sm",
+                metodo === m
+                  ? "border-acao bg-acao/15"
+                  : "border-borda bg-surface text-texto-secundario",
+              )}
+            >
+              <Icone className="size-4" />
+              {ROTULO_METODO[m]}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        {[
+          {
+            rotulo: "Contas no filtro",
+            valor: String(data.length),
+            Icone: ReceiptText,
+          },
+          { rotulo: "Pagas", valor: String(pagas.length), Icone: CheckCircle2 },
+          { rotulo: "Total pago", valor: formatBRL(totalPago), Icone: Wallet },
+          {
+            rotulo: "Ticket médio",
+            valor: formatBRL(
+              pagas.length ? Math.round(totalPago / pagas.length) : 0,
+            ),
+            Icone: Receipt,
+          },
+        ].map((k) => (
+          <div
+            key={k.rotulo}
+            className="flex items-center gap-3 rounded-xl border border-borda bg-surface p-3"
+          >
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-acao/15 text-acao">
+              <k.Icone className="size-5" />
+            </span>
+            <span>
+              <span className="block text-sm text-texto-secundario">
+                {k.rotulo}
+              </span>
+              <strong className="text-lg tabular-nums">{k.valor}</strong>
+            </span>
+          </div>
+        ))}
+      </div>
 
       <div className="overflow-x-auto rounded-xl border border-borda bg-surface">
         <table className="w-full min-w-[720px] text-left text-sm">
@@ -175,7 +285,24 @@ export const HistoricoContas = () => {
                 <td className="p-3">{c.titular}</td>
                 <td className="p-3">{c.recebidoPor ?? "—"}</td>
                 <td className="p-3">
-                  {c.metodos.map((m) => ROTULO_METODO[m]).join(" + ") || "—"}
+                  {c.metodos.length === 0 ? (
+                    "—"
+                  ) : (
+                    <span className="flex flex-wrap gap-1">
+                      {c.metodos.map((m) => {
+                        const Icone = ICONE_METODO[m];
+                        return (
+                          <span
+                            key={m}
+                            className="inline-flex items-center gap-1 rounded-full bg-fundo px-2 py-0.5 text-xs"
+                          >
+                            <Icone className="size-3.5" />
+                            {ROTULO_METODO[m]}
+                          </span>
+                        );
+                      })}
+                    </span>
+                  )}
                 </td>
                 <td className="p-3 text-right font-semibold">
                   {formatBRL(c.totalCentavos)}
@@ -228,6 +355,36 @@ const DetalheDaConta = ({
     mutationFn: () =>
       api(`/api/caixa/contas/${comandaId}/imprimir`, { method: "POST" }),
     onSuccess: () => toast.success("Enviado para a impressora do caixa"),
+    onError: (e) => toast.error(e.message),
+  });
+  // Correções só do gerente: forma de pagamento e reabrir a conta.
+  const eu = useFuncionario();
+  const gerente = eu.papel === "gerente";
+  const queryClient = useQueryClient();
+  const [reabrindo, setReabrindo] = useState(false);
+  const [motivo, setMotivo] = useState("");
+  const atualizar = () =>
+    queryClient.invalidateQueries({ queryKey: ["mesas"] });
+  const corrigir = useMutation({
+    mutationFn: ({ id, metodo }: { id: string; metodo: MetodoPagamento }) =>
+      api(`/api/caixa/pagamentos/${id}`, { method: "PATCH", json: { metodo } }),
+    onSuccess: () => {
+      toast.success("Forma de pagamento corrigida");
+      atualizar();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const reabrir = useMutation({
+    mutationFn: () =>
+      api(`/api/caixa/contas/${comandaId}/reabrir`, {
+        method: "POST",
+        json: { motivo: motivo.trim() },
+      }),
+    onSuccess: () => {
+      toast.success("Conta reaberta. Ela voltou para a mesa.");
+      setReabrindo(false);
+      atualizar();
+    },
     onError: (e) => toast.error(e.message),
   });
 
@@ -392,11 +549,49 @@ const DetalheDaConta = ({
                       key={`${p.metodo}-${p.em}-${p.valorCentavos}`}
                       className="flex justify-between gap-2"
                     >
-                      <span>
-                        {ROTULO_METODO[p.metodo as MetodoPagamento]} ·{" "}
-                        {hora(p.em)} · {p.recebidoPor}
-                        {p.recebidoCentavos !== null &&
-                          ` · recebeu ${formatBRL(p.recebidoCentavos)}, troco ${formatBRL(p.trocoCentavos)}`}
+                      <span className="flex flex-col">
+                        <span className="flex items-center gap-1.5">
+                          {gerente ? (
+                            <select
+                              aria-label="Corrigir forma de pagamento"
+                              value={p.metodo}
+                              disabled={corrigir.isPending}
+                              onChange={(e) =>
+                                corrigir.mutate({
+                                  id: p.id,
+                                  metodo: e.target.value as MetodoPagamento,
+                                })
+                              }
+                              className="h-8 rounded-md border border-borda bg-fundo px-1 font-semibold"
+                            >
+                              {Object.entries(ROTULO_METODO).map(([v, r]) => (
+                                <option key={v} value={v}>
+                                  {r}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <strong>
+                              {ROTULO_METODO[p.metodo as MetodoPagamento]}
+                            </strong>
+                          )}
+                          <span className="text-texto-secundario">
+                            {hora(p.em)} · {p.recebidoPor}
+                          </span>
+                        </span>
+                        {p.recebidoCentavos !== null && p.trocoCentavos > 0 && (
+                          <span className="text-texto-secundario text-xs">
+                            recebeu {formatBRL(p.recebidoCentavos)}, troco{" "}
+                            {formatBRL(p.trocoCentavos)}
+                          </span>
+                        )}
+                        {p.metodoOriginal && (
+                          <span className="text-status-aguardando text-xs">
+                            corrigido (era{" "}
+                            {ROTULO_METODO[p.metodoOriginal as MetodoPagamento]}
+                            )
+                          </span>
+                        )}
                       </span>
                       <strong>{formatBRL(p.valorCentavos)}</strong>
                     </li>
@@ -424,6 +619,13 @@ const DetalheDaConta = ({
               </section>
             )}
 
+            {data.reabertaEm && (
+              <p className="rounded-lg bg-status-aguardando/15 px-3 py-2 text-sm">
+                Reaberta em {dataHora(data.reabertaEm)}
+                {data.reabertaMotivo && `: ${data.reabertaMotivo}`}
+              </p>
+            )}
+
             <Button
               disabled={imprimir.isPending}
               onClick={() => imprimir.mutate()}
@@ -433,6 +635,58 @@ const DetalheDaConta = ({
                 ? "Imprimir conta"
                 : "Reimprimir comprovante"}
             </Button>
+
+            {gerente &&
+              data.status !== "aberta" &&
+              (reabrindo ? (
+                <form
+                  className="flex flex-col gap-2 rounded-xl border-2 border-destructive/50 p-3"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (motivo.trim().length >= 3) reabrir.mutate();
+                  }}
+                >
+                  <p className="text-sm">
+                    A conta volta para a mesa sem pagamento, taxa, gorjeta e
+                    desconto. Depois é só receber de novo.
+                  </p>
+                  <input
+                    // biome-ignore lint/a11y/noAutofocus: aparece depois do toque em "Reabrir conta"
+                    autoFocus
+                    aria-label="Motivo da reabertura"
+                    placeholder="Motivo (ex.: fechou a mesa errada)"
+                    value={motivo}
+                    onChange={(e) => setMotivo(e.target.value)}
+                    className="h-11 rounded-lg border border-borda bg-fundo px-3"
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      type="submit"
+                      variant="destrutivo"
+                      className="flex-1"
+                      disabled={motivo.trim().length < 3 || reabrir.isPending}
+                    >
+                      {reabrir.isPending ? (
+                        <Loader2 className="animate-spin" />
+                      ) : (
+                        <RotateCcw />
+                      )}
+                      Confirmar reabertura
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => setReabrindo(false)}
+                    >
+                      Cancelar
+                    </Button>
+                  </div>
+                </form>
+              ) : (
+                <Button variant="ghost" onClick={() => setReabrindo(true)}>
+                  <RotateCcw /> Reabrir conta
+                </Button>
+              ))}
           </div>
         )}
       </div>
