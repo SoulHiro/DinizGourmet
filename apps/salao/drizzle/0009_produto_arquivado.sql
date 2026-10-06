@@ -1,0 +1,1 @@
+ALTER TABLE "produto" ADD COLUMN "arquivado_em" timestamp with time zone;

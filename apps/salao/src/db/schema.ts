@@ -234,10 +234,15 @@ export const produtos = pgTable(
     // Nome sem acento e minúsculo, para a busca rápida do garçom.
     buscaNormalizada: text("busca_normalizada").notNull(),
     precoCentavos: integer("preco_centavos").notNull(),
+    // Quanto custa fazer/comprar uma unidade (opcional): base do lucro.
+    custoCentavos: integer("custo_centavos"),
     disponivel: boolean("disponivel").notNull().default(true),
     controlaEstoque: boolean("controla_estoque").notNull().default(false),
     estoque: integer("estoque"),
     ordem: integer("ordem").notNull().default(0),
+    // Excluído pelo gerente, mas já vendido: some do cardápio e continua
+    // existindo para o histórico das comandas.
+    arquivadoEm: timestamp("arquivado_em", { withTimezone: true }),
     criadoEm: criadoEm(),
     atualizadoEm: atualizadoEm(),
   },
@@ -341,6 +346,10 @@ export const descontos = pgTable(
     tipo: tipoDescontoEnum("tipo").notNull(),
     // Percentual (0-100) ou centavos, conforme o tipo.
     valor: integer("valor").notNull(),
+    // Só gerente ou caixa aplicam (o garçom vê o desconto travado).
+    somenteGerente: boolean("somente_gerente").notNull().default(false),
+    // Quantas vezes pode ser usado por noite (nulo = sem limite).
+    limitePorNoite: integer("limite_por_noite"),
     ativo: boolean("ativo").notNull().default(true),
     criadoEm: criadoEm(),
     atualizadoEm: atualizadoEm(),
@@ -429,6 +438,10 @@ export const comandas = pgTable(
     descontoId: uuid("desconto_id").references(() => descontos.id),
     // Quem recebeu o pagamento (e registrou taxa/desconto).
     fechadaPor: uuid("fechada_por").references(() => funcionarios.id),
+    // Conta fechada por engano e reaberta pelo gerente (auditoria).
+    reabertaEm: timestamp("reaberta_em", { withTimezone: true }),
+    reabertaPor: uuid("reaberta_por").references(() => funcionarios.id),
+    reabertaMotivo: text("reaberta_motivo"),
     atualizadoEm: atualizadoEm(),
   },
   (t) => [
@@ -466,6 +479,10 @@ export const pagamentos = pgTable(
       .notNull()
       .references(() => funcionarios.id),
     criadoEm: criadoEm(),
+    // Forma de pagamento corrigida depois (ex.: era Pix, marcaram dinheiro).
+    metodoOriginal: metodoPagamentoEnum("metodo_original"),
+    corrigidoPor: uuid("corrigido_por").references(() => funcionarios.id),
+    corrigidoEm: timestamp("corrigido_em", { withTimezone: true }),
   },
   (t) => [
     index("pagamento_comanda_idx").on(t.comandaId),
@@ -550,6 +567,8 @@ export const itensPedido = pgTable(
     // Snapshots: o ticket e a conta não mudam se o cardápio mudar depois.
     nomeProduto: text("nome_produto").notNull(),
     precoUnitarioCentavos: integer("preco_unitario_centavos").notNull(),
+    // Custo na hora da venda (mudar o custo depois não altera o passado).
+    custoUnitarioCentavos: integer("custo_unitario_centavos"),
     // (preço unitário + adicionais) x quantidade, gravado no lançamento.
     totalCentavos: integer("total_centavos").notNull(),
     impressoraId: uuid("impressora_id").references(() => impressoras.id),
@@ -810,6 +829,65 @@ export const gorjetaDivisoes = pgTable(
 );
 
 // Relations
+// Turno do caixa: abre com o fundo de troco, registra sangrias/suprimentos
+// e fecha com a contagem da gaveta (o sistema mostra a diferença).
+export const tipoMovimentoCaixaEnum = pgEnum("tipo_movimento_caixa", [
+  "sangria",
+  "suprimento",
+]);
+
+export const turnosCaixa = pgTable(
+  "turno_caixa",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    restauranteId: uuid("restaurante_id")
+      .notNull()
+      .references(() => restaurantes.id),
+    abertoPor: uuid("aberto_por")
+      .notNull()
+      .references(() => funcionarios.id),
+    abertoEm: timestamp("aberto_em", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    fundoCentavos: integer("fundo_centavos").notNull(),
+    fechadoPor: uuid("fechado_por").references(() => funcionarios.id),
+    fechadoEm: timestamp("fechado_em", { withTimezone: true }),
+    // No fechamento: o que o sistema esperava e o que foi contado.
+    esperadoCentavos: integer("esperado_centavos"),
+    contadoCentavos: integer("contado_centavos"),
+    observacao: text("observacao"),
+  },
+  (t) => [
+    // Um caixa aberto por vez.
+    uniqueIndex("turno_caixa_aberto_idx")
+      .on(t.restauranteId)
+      .where(sql`${t.fechadoEm} is null`),
+    index("turno_caixa_restaurante_idx").on(t.restauranteId, t.abertoEm),
+    check("turno_caixa_fundo_positivo", sql`${t.fundoCentavos} >= 0`),
+  ],
+);
+
+export const movimentosCaixa = pgTable(
+  "movimento_caixa",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    turnoId: uuid("turno_id")
+      .notNull()
+      .references(() => turnosCaixa.id),
+    tipo: tipoMovimentoCaixaEnum("tipo").notNull(),
+    valorCentavos: integer("valor_centavos").notNull(),
+    motivo: text("motivo").notNull(),
+    funcionarioId: uuid("funcionario_id")
+      .notNull()
+      .references(() => funcionarios.id),
+    criadoEm: criadoEm(),
+  },
+  (t) => [
+    index("movimento_caixa_turno_idx").on(t.turnoId),
+    check("movimento_caixa_valor_positivo", sql`${t.valorCentavos} > 0`),
+  ],
+);
+
 export const funcionariosRelations = relations(funcionarios, ({ one }) => ({
   restaurante: one(restaurantes, {
     fields: [funcionarios.restauranteId],
