@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 
 import { db, schema } from "@/db";
 import { estoqueDosInsumos, faltaInsumoBase } from "./estoque";
@@ -42,9 +42,10 @@ export const listarCardapio = async (
     orderBy: [asc(schema.categorias.ordem), asc(schema.categorias.nome)],
     with: {
       produtos: {
+        where: isNull(schema.produtos.arquivadoEm),
         orderBy: [
-          asc(schema.produtos.codigo),
           asc(schema.produtos.ordem),
+          asc(schema.produtos.codigo),
           asc(schema.produtos.nome),
         ],
         with: {
@@ -123,3 +124,37 @@ export const adicionalEsgotado = (
   modificador.insumoId !== null &&
   estoque.has(modificador.insumoId) &&
   (estoque.get(modificador.insumoId) ?? 0) < 1;
+
+// Atalhos do garçom: o que mais sai nos últimos 30 dias (vira a primeira
+// aba do pedido) e as observações mais escritas (viram sugestões rápidas).
+export const sugestoesDoPedido = async (restauranteId: string) => {
+  const [maisPedidos, observacoes] = await Promise.all([
+    db().execute<{ produto_id: string }>(sql`
+      select i.produto_id
+        from item_pedido i
+        join rodada r on r.id = i.rodada_id
+        join produto p on p.id = i.produto_id
+       where r.restaurante_id = ${restauranteId} and i.status = 'ativo'
+         and r.lancada_em > now() - interval '30 days'
+         and p.arquivado_em is null and p.disponivel
+       group by i.produto_id
+       order by sum(i.quantidade) desc
+       limit 8
+    `),
+    db().execute<{ texto: string }>(sql`
+      select min(trim(i.observacao)) as texto
+        from item_pedido i
+        join rodada r on r.id = i.rodada_id
+       where r.restaurante_id = ${restauranteId}
+         and i.observacao is not null and trim(i.observacao) <> ''
+         and r.lancada_em > now() - interval '60 days'
+       group by lower(trim(i.observacao))
+       order by count(*) desc
+       limit 8
+    `),
+  ]);
+  return {
+    maisPedidos: maisPedidos.rows.map((r) => r.produto_id),
+    observacoes: observacoes.rows.map((r) => r.texto),
+  };
+};

@@ -1,4 +1,14 @@
-import { and, asc, eq, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  or,
+  sql,
+} from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import { db, schema } from "@/db";
@@ -325,10 +335,31 @@ export const manutencaoChamados = async (escalarAposSegundos: number) => {
     )
     .returning({ restauranteId: schema.chamados.restauranteId });
 
+  // Sobra de outra noite (ninguém fechou) ou conta de comanda que já foi
+  // paga: encerra sozinho para não travar alerta na tela do gerente.
+  const esquecidos = await db()
+    .update(schema.chamados)
+    .set({ encerradoEm: new Date() })
+    .where(
+      and(
+        isNull(schema.chamados.encerradoEm),
+        or(
+          lt(schema.chamados.criadoEm, sql`now() - interval '12 hours'`),
+          sql`exists (select 1 from comanda c
+                       where c.id = ${schema.chamados.comandaId}
+                         and c.status <> 'aberta')`,
+        ),
+      ),
+    )
+    .returning({ restauranteId: schema.chamados.restauranteId });
+
   const afetados = new Set(
-    [...escalados, ...encerrados].map((c) => c.restauranteId),
+    [...escalados, ...encerrados, ...esquecidos].map((c) => c.restauranteId),
   );
   for (const restauranteId of afetados)
     notificar(restauranteId, ["chamados", "mesas"]);
-  return { escalados: escalados.length, encerrados: encerrados.length };
+  return {
+    escalados: escalados.length,
+    encerrados: encerrados.length + esquecidos.length,
+  };
 };

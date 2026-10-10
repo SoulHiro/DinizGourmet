@@ -64,6 +64,41 @@
       "when": 1790622036188,
       "tag": "0008_comandas_por_cartao",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791244125727,
+      "tag": "0009_produto_arquivado",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791291688099,
+      "tag": "0010_limites_desconto",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791296054868,
+      "tag": "0011_turno_caixa",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791296435957,
+      "tag": "0012_custo_produto",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791296739323,
+      "tag": "0013_correcoes_caixa",
+      "breakpoints": true
     }
   ]
 }

@@ -193,6 +193,7 @@ export const editarItem = async (
         quantidade: input.quantidade,
         nomeProduto: item.nomeProduto,
         precoUnitarioCentavos: item.precoUnitarioCentavos,
+        custoUnitarioCentavos: item.custoUnitarioCentavos,
         totalCentavos:
           (item.precoUnitarioCentavos + adicionais) * input.quantidade,
         impressoraId: item.impressoraId,

@@ -29,6 +29,14 @@
 
   --destructive: #c62828;
   --radius: 0.75rem;
+
+  /* Gráficos do painel (paleta validada para daltonismo, fundo claro). */
+  --serie-1: #2a78d6;
+  --serie-2: #eb6834;
+  --serie-3: #1baf7a;
+  --serie-4: #eda100;
+  --serie-5: #e87ba4;
+  --serie-6: #008300;
 }
 
 .dark {
@@ -51,6 +59,13 @@
   --status-conta: #ef5350;
 
   --destructive: #ef5350;
+
+  --serie-1: #3987e5;
+  --serie-2: #d95926;
+  --serie-3: #199e70;
+  --serie-4: #c98500;
+  --serie-5: #d55181;
+  --serie-6: #008300;
 }
 
 @theme inline {

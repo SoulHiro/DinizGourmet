@@ -6,7 +6,7 @@ import { type NextRequest, NextResponse } from "next/server";
 const COOKIE_SESSAO = "salao_sessao";
 
 const ROTAS_API_PUBLICAS = ["/api/auth/login", "/api/auth/funcionarios"];
-const ROTAS_PUBLICAS = ["/garcom/login", "/manifest.webmanifest"];
+const ROTAS_PUBLICAS = ["/garcom/login", "/manifest.webmanifest", "/sw.js"];
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -44,6 +44,6 @@ export function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|icons/).*)",
+    "/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|icons/).*)",
   ],
 };

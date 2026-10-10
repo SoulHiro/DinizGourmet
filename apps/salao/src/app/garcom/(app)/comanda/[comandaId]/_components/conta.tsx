@@ -3,10 +3,13 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  ArrowRightLeft,
   CheckCircle2,
   Clock,
   Loader2,
+  MoreVertical,
   Pencil,
+  Repeat2,
   X,
 } from "lucide-react";
 import { useState } from "react";
@@ -29,6 +32,143 @@ import { DrawerEditar, type ItemEditavel } from "./drawer-editar";
 
 type Comanda = NonNullable<DetalheMesa["comanda"]>;
 type Item = Comanda["rodadas"][number]["itens"][number];
+
+export type ItemParaRepetir = Pick<
+  Item,
+  "produtoId" | "quantidade" | "modificadorIds" | "observacao"
+>;
+
+// Toque no item: o que fazer com ele. Tirar os botões de cada linha evita
+// cancelar sem querer (o X ficava colado no preço).
+const DrawerAcoesItem = ({
+  item,
+  comandaId,
+  onFechar,
+  onRepetir,
+  onEditar,
+  onCancelar,
+}: {
+  item: Item | null;
+  comandaId: string;
+  onFechar: () => void;
+  onRepetir: (item: Item) => void;
+  onEditar: (item: Item) => void;
+  onCancelar: (item: Item) => void;
+}) => {
+  const queryClient = useQueryClient();
+  const [movendo, setMovendo] = useState(false);
+  const [cartao, setCartao] = useState("");
+  const fechar = () => {
+    setMovendo(false);
+    setCartao("");
+    onFechar();
+  };
+  // Passa o item para outro cartão (ex.: o casal vai pagar separado).
+  const mover = useMutation({
+    mutationFn: () =>
+      api<{ abriuAgora: boolean }>(`/api/comandas/${comandaId}/mover-itens`, {
+        method: "POST",
+        json: { itemIds: [item?.id], numeroCartao: Number(cartao) },
+      }),
+    onSuccess: ({ abriuAgora }) => {
+      toast.success(
+        abriuAgora
+          ? `Cartão ${cartao} aberto com ${item?.nome}`
+          : `${item?.nome} passou para o cartão ${cartao}`,
+      );
+      queryClient.invalidateQueries({ queryKey: ["mesas"] });
+      fechar();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  if (!item) return null;
+  return (
+    <Drawer open onOpenChange={(aberto) => !aberto && fechar()}>
+      <DrawerContent>
+        <DrawerHeader className="text-left">
+          <DrawerTitle className="text-xl">
+            {item.quantidade}x {item.nome}
+          </DrawerTitle>
+          {(item.modificadores.length > 0 || item.observacao) && (
+            <p className="text-sm text-texto-secundario">
+              {[item.modificadores.join(", "), item.observacao]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          )}
+        </DrawerHeader>
+        <div className="flex flex-col gap-2 px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+          <Button
+            variant="acao"
+            size="lg"
+            onClick={() => {
+              onRepetir(item);
+              fechar();
+            }}
+          >
+            <Repeat2 /> Pedir de novo
+          </Button>
+          <Button
+            size="lg"
+            onClick={() => {
+              onEditar(item);
+              fechar();
+            }}
+          >
+            <Pencil /> Editar
+          </Button>
+          {movendo ? (
+            <form
+              className="flex gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (cartao) mover.mutate();
+              }}
+            >
+              <input
+                // biome-ignore lint/a11y/noAutofocus: aparece depois do toque em "Passar para outro cartão"
+                autoFocus
+                inputMode="numeric"
+                aria-label="Número do cartão que recebe o item"
+                placeholder="Nº do cartão"
+                value={cartao}
+                onChange={(e) => setCartao(e.target.value.replace(/D/g, ""))}
+                className="h-14 min-w-0 flex-1 rounded-lg border border-borda bg-fundo px-4 font-bold text-2xl"
+              />
+              <Button
+                type="submit"
+                variant="acao"
+                size="lg"
+                disabled={!cartao || mover.isPending}
+              >
+                {mover.isPending ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  "Passar"
+                )}
+              </Button>
+            </form>
+          ) : (
+            <Button size="lg" onClick={() => setMovendo(true)}>
+              <ArrowRightLeft /> Passar para outro cartão
+            </Button>
+          )}
+          <Button
+            size="lg"
+            variant="ghost"
+            className="text-destructive"
+            onClick={() => {
+              onCancelar(item);
+              fechar();
+            }}
+          >
+            <X /> Cancelar item
+          </Button>
+        </div>
+      </DrawerContent>
+    </Drawer>
+  );
+};
 
 const IconeImpressao = ({
   status,
@@ -190,13 +330,20 @@ const DrawerCancelar = ({
 };
 
 // Histórico da comanda: rodadas imutáveis, só dá para cancelar item a item.
-export const Conta = ({ comanda }: { comanda: Comanda }) => {
+export const Conta = ({
+  comanda,
+  onRepetir,
+}: {
+  comanda: Comanda;
+  onRepetir: (itens: ItemParaRepetir[]) => void;
+}) => {
+  const [acoes, setAcoes] = useState<Item | null>(null);
   const [cancelando, setCancelando] = useState<Item | null>(null);
   const [editando, setEditando] = useState<ItemEditavel | null>(null);
   const agrupada = comanda.mesas.length > 1;
 
   return (
-    <div className="flex flex-col gap-3 p-3 pb-10">
+    <div className="flex flex-col gap-3 p-3 pb-28">
       <section className="rounded-xl border border-borda bg-surface p-4">
         <div className="flex items-baseline justify-between">
           <span className="text-texto-secundario">Total</span>
@@ -213,6 +360,16 @@ export const Conta = ({ comanda }: { comanda: Comanda }) => {
               </li>
             ))}
           </ul>
+        )}
+        {comanda.taxa.valorCentavos > 0 && (
+          <div className="mt-1 flex items-baseline justify-between text-sm">
+            <span className="text-texto-secundario">
+              Com taxa de serviço ({comanda.taxa.pct}%)
+            </span>
+            <span className="font-semibold">
+              {formatBRL(comanda.totalCentavos + comanda.taxa.valorCentavos)}
+            </span>
+          </div>
         )}
         <p className="mt-2 text-sm text-texto-secundario">
           Aberta às {formatarHora(comanda.abertaEm)} · {comanda.titular}
@@ -235,77 +392,79 @@ export const Conta = ({ comanda }: { comanda: Comanda }) => {
             <span className="text-texto-secundario">
               {formatarHora(rodada.lancadaEm)} · {rodada.garcom}
             </span>
-            <span className="ml-auto">
+            <span className="ml-auto flex items-center gap-1">
               <IconeImpressao status={rodada.impressao} />
+              {rodada.itens.some((i) => i.status === "ativo") && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  aria-label={`Repetir rodada ${rodada.numero}`}
+                  onClick={() =>
+                    onRepetir(rodada.itens.filter((i) => i.status === "ativo"))
+                  }
+                >
+                  <Repeat2 /> Repetir
+                </Button>
+              )}
             </span>
           </header>
           <ul>
             {rodada.itens.map((item) => {
               const cancelado = item.status === "cancelado";
               return (
-                <li key={item.id} className="flex items-center gap-2 px-3 py-2">
-                  <div
-                    className={cn(
-                      "flex-1",
-                      cancelado && "text-texto-secundario line-through",
-                    )}
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    disabled={cancelado}
+                    onClick={() => setAcoes(item)}
+                    aria-label={`${item.quantidade}x ${item.nome}: repetir, editar ou cancelar`}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left enabled:active:bg-borda/40"
                   >
-                    <p className="font-semibold">
-                      {item.quantidade}x {item.nome}
-                      {item.editado && !cancelado && (
-                        <span className="ml-2 rounded-full bg-borda px-2 py-0.5 font-normal text-texto-secundario text-xs">
-                          editado
-                        </span>
+                    <div
+                      className={cn(
+                        "flex-1",
+                        cancelado && "text-texto-secundario line-through",
                       )}
-                    </p>
-                    {(item.modificadores.length > 0 ||
-                      item.observacao ||
-                      agrupada) && (
-                      <p className="text-sm text-texto-secundario">
-                        {[
-                          item.modificadores.join(", "),
-                          item.observacao && `Obs: ${item.observacao}`,
-                          agrupada && `Mesa ${item.mesaOrigem}`,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
+                    >
+                      <p className="font-semibold">
+                        {item.quantidade}x {item.nome}
+                        {item.editado && !cancelado && (
+                          <span className="ml-2 rounded-full bg-borda px-2 py-0.5 font-normal text-texto-secundario text-xs">
+                            editado
+                          </span>
+                        )}
                       </p>
-                    )}
-                    {cancelado && item.motivoCancelamento && (
-                      <p className="text-sm no-underline">
-                        Cancelado: {item.motivoCancelamento}
-                      </p>
-                    )}
-                  </div>
-                  <span
-                    className={cn(
-                      "shrink-0 text-sm",
-                      cancelado && "line-through opacity-60",
-                    )}
-                  >
-                    {formatBRL(item.totalCentavos)}
-                  </span>
-                  {!cancelado && (
-                    <div className="flex shrink-0">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        aria-label={`Editar ${item.nome}`}
-                        onClick={() => setEditando(item)}
-                      >
-                        <Pencil />
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="text-destructive"
-                        aria-label={`Cancelar ${item.nome}`}
-                        onClick={() => setCancelando(item)}
-                      >
-                        <X />
-                      </Button>
+                      {(item.modificadores.length > 0 ||
+                        item.observacao ||
+                        agrupada) && (
+                        <p className="text-sm text-texto-secundario">
+                          {[
+                            item.modificadores.join(", "),
+                            item.observacao && `Obs: ${item.observacao}`,
+                            agrupada && `Mesa ${item.mesaOrigem}`,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </p>
+                      )}
+                      {cancelado && item.motivoCancelamento && (
+                        <p className="text-sm no-underline">
+                          Cancelado: {item.motivoCancelamento}
+                        </p>
+                      )}
                     </div>
-                  )}
+                    <span
+                      className={cn(
+                        "shrink-0 text-sm",
+                        cancelado && "line-through opacity-60",
+                      )}
+                    >
+                      {formatBRL(item.totalCentavos)}
+                    </span>
+                    {!cancelado && (
+                      <MoreVertical className="size-4 shrink-0 text-texto-secundario" />
+                    )}
+                  </button>
                 </li>
               );
             })}
@@ -313,6 +472,14 @@ export const Conta = ({ comanda }: { comanda: Comanda }) => {
         </section>
       ))}
 
+      <DrawerAcoesItem
+        item={acoes}
+        comandaId={comanda.id}
+        onFechar={() => setAcoes(null)}
+        onRepetir={(item) => onRepetir([item])}
+        onEditar={setEditando}
+        onCancelar={setCancelando}
+      />
       <DrawerCancelar item={cancelando} onFechar={() => setCancelando(null)} />
       <DrawerEditar item={editando} onFechar={() => setEditando(null)} />
     </div>

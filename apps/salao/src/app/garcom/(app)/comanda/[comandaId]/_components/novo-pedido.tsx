@@ -1,39 +1,52 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ClipboardList, Loader2, Minus, Plus, Search, X } from "lucide-react";
+import {
+  ClipboardList,
+  Flame,
+  Loader2,
+  Minus,
+  Plus,
+  Search,
+  X,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { api, ErroApi } from "@/lib/cliente";
-import { useCardapio } from "@/lib/consultas";
+import { useCardapio, useSugestoesPedido } from "@/lib/consultas";
 import type { ProdutoCardapio } from "@/lib/dominio/cardapio";
 import type { ResultadoRodada } from "@/lib/dominio/rodadas";
 import { normalizarBusca } from "@/lib/texto";
 import { cn, formatBRL } from "@/lib/utils";
-import { useCarrinho } from "./carrinho";
+import type { useCarrinho } from "./carrinho";
 import { DrawerItem } from "./drawer-item";
 import { DrawerRevisao } from "./drawer-revisao";
 
 type MesaDaComanda = { id: string; numero: number };
+
+export type Carrinho = ReturnType<typeof useCarrinho>;
 
 export const NovoPedido = ({
   comandaId,
   mesaId,
   mesaNumero,
   mesas,
+  carrinho,
 }: {
   comandaId: string;
   mesaId: string;
   mesaNumero: number;
   mesas: MesaDaComanda[];
+  // Vem da página: a aba Conta também põe itens nele ("Repetir").
+  carrinho: Carrinho;
 }) => {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { data: categorias, isLoading } = useCardapio();
-  const carrinho = useCarrinho(comandaId);
+  const { data: sugestoes } = useSugestoesPedido();
   const [busca, setBusca] = useState("");
   const [categoriaId, setCategoriaId] = useState<string | null>(null);
   const [produtoAberto, setProdutoAberto] = useState<ProdutoCardapio | null>(
@@ -49,7 +62,13 @@ export const NovoPedido = ({
     [categorias],
   );
 
-  const categoriaAtiva = categoriaId ?? categorias?.[0]?.id ?? null;
+  // "Mais pedidos" (o que mais sai nos últimos 30 dias) abre primeiro.
+  const MAIS = "__mais";
+  const maisPedidos = (sugestoes?.maisPedidos ?? [])
+    .map((id) => produtosPorId.get(id))
+    .filter((p): p is ProdutoCardapio => Boolean(p));
+  const categoriaAtiva =
+    categoriaId ?? (maisPedidos.length ? MAIS : (categorias?.[0]?.id ?? null));
   const termo = normalizarBusca(busca);
   // Número digitado = código do cardápio (ex.: "5" ou "3" → 3, 30–39).
   const buscaPorCodigo = /^\d+$/.test(termo);
@@ -69,8 +88,9 @@ export const NovoPedido = ({
     if (termo.length >= 2) {
       return todos.filter((p) => p.busca.includes(termo));
     }
+    if (categoriaAtiva === MAIS) return maisPedidos;
     return categorias.find((c) => c.id === categoriaAtiva)?.produtos ?? [];
-  }, [categorias, categoriaAtiva, termo, buscaPorCodigo]);
+  }, [categorias, categoriaAtiva, termo, buscaPorCodigo, maisPedidos]);
 
   const totalItens = carrinho.linhas.reduce((s, l) => s + l.quantidade, 0);
   const totalCentavos = carrinho.linhas.reduce((soma, linha) => {
@@ -140,6 +160,20 @@ export const NovoPedido = ({
         </label>
         {!buscando && (
           <div className="-mx-3 flex gap-2 overflow-x-auto px-3 pb-1 [scrollbar-width:none]">
+            {maisPedidos.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setCategoriaId(MAIS)}
+                className={cn(
+                  "flex h-11 shrink-0 items-center gap-1.5 rounded-full px-4 font-semibold",
+                  categoriaAtiva === MAIS
+                    ? "bg-marca text-marca-foreground"
+                    : "bg-surface text-texto",
+                )}
+              >
+                <Flame className="size-4" /> Mais pedidos
+              </button>
+            )}
             {categorias?.map((c) => (
               <button
                 key={c.id}
@@ -278,6 +312,7 @@ export const NovoPedido = ({
         mesaAtualId={mesaId}
         onFechar={() => setProdutoAberto(null)}
         onAdicionar={carrinho.adicionar}
+        sugestoesObservacao={sugestoes?.observacoes ?? []}
       />
     </>
   );

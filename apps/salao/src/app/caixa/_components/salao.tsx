@@ -2,11 +2,11 @@
 
 import { useMutation } from "@tanstack/react-query";
 import { ChevronRight, Loader2, Receipt, ScanBarcode } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { useChamados } from "@/components/salao/alertas-ajuda";
-import { STATUS_MESA } from "@/components/salao/status-mesa";
+import { mesaParada, STATUS_MESA } from "@/components/salao/status-mesa";
 import { api } from "@/lib/cliente";
 import { useComandasDaMesa, useMapa } from "@/lib/consultas";
 import { formatarDuracao, minutosDesde, useAgora } from "@/lib/tempo";
@@ -88,6 +88,30 @@ export const SalaoCaixa = () => {
   const agora = useAgora(30_000);
   const [selecao, setSelecao] = useState<Selecao | null>(null);
   const [numero, setNumero] = useState("");
+  // O caixa só recebe: por padrão mostra só as mesas com gente.
+  const [mostrarLivres, setMostrarLivres] = useState(false);
+  const campoLeitor = useRef<HTMLInputElement>(null);
+
+  // Leitor sempre pronto: número digitado (ou lido) com o foco fora de um
+  // campo vai para a busca do cartão.
+  useEffect(() => {
+    const aoTeclar = (e: KeyboardEvent) => {
+      const alvo = e.target as HTMLElement | null;
+      if (
+        alvo &&
+        (alvo.tagName === "INPUT" ||
+          alvo.tagName === "TEXTAREA" ||
+          alvo.tagName === "SELECT" ||
+          alvo.isContentEditable)
+      )
+        return;
+      if (/^d$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        campoLeitor.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", aoTeclar);
+    return () => window.removeEventListener("keydown", aoTeclar);
+  }, []);
 
   const pedidosConta = chamados.filter(
     (c) => c.tipo === "conta" && c.comandaId,
@@ -128,6 +152,7 @@ export const SalaoCaixa = () => {
           >
             <ScanBarcode className="size-4 text-texto-secundario" />
             <input
+              ref={campoLeitor}
               // biome-ignore lint/a11y/noAutofocus: no caixa o fluxo é passar o leitor no cartão
               autoFocus
               aria-label="Comanda pelo número do cartão"
@@ -144,6 +169,22 @@ export const SalaoCaixa = () => {
             <strong className="text-texto">{formatBRL(emAberto)}</strong> em
             aberto
           </p>
+          <button
+            type="button"
+            aria-pressed={mostrarLivres}
+            onClick={() => setMostrarLivres((v) => !v)}
+            className={cn(
+              "ml-auto flex h-10 items-center gap-2 rounded-full border px-3 font-semibold text-sm",
+              mostrarLivres
+                ? "border-texto bg-texto text-fundo"
+                : "border-borda bg-surface text-texto-secundario",
+            )}
+          >
+            <span className="size-2.5 rounded-full bg-status-livre" />
+            {mostrarLivres
+              ? "Esconder livres"
+              : `Mostrar livres (${mapa.length - ocupadas.length})`}
+          </button>
         </div>
 
         {pedidosConta.length > 0 && (
@@ -160,7 +201,11 @@ export const SalaoCaixa = () => {
                     c.comandaId &&
                     setSelecao({ tipo: "comanda", comandaId: c.comandaId })
                   }
-                  className="flex flex-col items-start rounded-lg bg-status-conta px-3 py-2 text-left text-white"
+                  className={cn(
+                    "flex flex-col items-start rounded-lg bg-status-conta px-3 py-2 text-left text-white",
+                    (minutosDesde(c.criadoEm, agora) ?? 0) >= 5 &&
+                      "animate-pulse ring-2 ring-white/70",
+                  )}
                 >
                   <span className="font-bold">
                     {c.comandaNumero
@@ -169,6 +214,7 @@ export const SalaoCaixa = () => {
                   </span>
                   <span className="text-sm">
                     {c.conta ? formatBRL(c.conta.totalCentavos) : ""} ·{" "}
+                    esperando há{" "}
                     {formatarDuracao(minutosDesde(c.criadoEm, agora))}
                     {c.aceitoPor ? ` · ${c.aceitoPor} indo` : ""}
                   </span>
@@ -179,19 +225,28 @@ export const SalaoCaixa = () => {
         )}
 
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 xl:grid-cols-6">
-          {mapa.map((m) => {
+          {(mostrarLivres ? mapa : ocupadas).map((m) => {
             const status = STATUS_MESA[m.status];
             const ativa = selecao?.tipo === "mesa" && selecao.mesaId === m.id;
+            const parada = mesaParada(m, agora);
             return (
               <button
                 key={m.id}
                 type="button"
                 onClick={() => abrirMesa(m.id)}
                 className={cn(
-                  "flex min-h-28 flex-col rounded-xl border-2 bg-surface p-2 text-left transition-shadow",
+                  "relative flex min-h-28 flex-col overflow-hidden rounded-xl border-2 bg-surface p-2 pl-3.5 text-left transition-shadow",
                   ativa ? "border-acao shadow-lg" : "border-borda",
+                  parada && "ring-2 ring-status-aguardando",
                 )}
               >
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "absolute inset-y-0 left-0 w-1.5",
+                    status.classe,
+                  )}
+                />
                 <span className="flex items-center justify-between gap-1">
                   <span className="font-bold text-2xl">{m.numero}</span>
                   <span
@@ -212,7 +267,10 @@ export const SalaoCaixa = () => {
                       {m.comandas.length > 1
                         ? `${m.comandas.length} comandas`
                         : m.garcons.join(", ")}{" "}
-                      · {formatarDuracao(minutosDesde(m.abertaEm, agora))}
+                      · {parada ? "sem pedido há " : ""}
+                      {formatarDuracao(
+                        minutosDesde(m.ultimaRodadaEm ?? m.abertaEm, agora),
+                      )}
                     </span>
                   </>
                 )}

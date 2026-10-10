@@ -98,12 +98,11 @@ export default function MesaPage({
           }}
         >
           <label htmlFor="numero-cartao" className="font-semibold">
-            Abrir comanda
+            Abrir comanda{" "}
+            <span className="font-normal text-sm text-texto-secundario">
+              · um cartão por quem paga separado
+            </span>
           </label>
-          <p className="text-sm text-texto-secundario">
-            Entregue um cartão para cada pessoa (ou casal) que vai pagar
-            separado. Digite o número ou passe o leitor no código de barras.
-          </p>
           <div className="flex gap-2">
             <input
               id="numero-cartao"
@@ -163,6 +162,11 @@ export default function MesaPage({
                         : "sem pedido"}{" "}
                       · {formatarDuracao(minutosDesde(c.abertaEm, agora))}
                     </span>
+                    {c.resumo && (
+                      <span className="mt-0.5 line-clamp-2 block text-sm">
+                        {c.resumo}
+                      </span>
+                    )}
                     {c.pediuConta && (
                       <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-status-conta px-2 py-0.5 font-semibold text-white text-xs">
                         <Receipt className="size-3" /> Pediu a conta

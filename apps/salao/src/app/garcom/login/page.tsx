@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Delete, Loader2, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { api, ErroApi } from "@/lib/cliente";
@@ -13,12 +13,31 @@ type Funcionario = { id: string; nome: string; papel: string };
 
 const TECLAS = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
 
+// Quem entrou por último neste celular aparece primeiro: troca de garçom
+// num aparelho compartilhado fica a um toque.
+const CHAVE_RECENTES = "login:recentes";
+const lerRecentes = (): string[] => {
+  try {
+    return JSON.parse(localStorage.getItem(CHAVE_RECENTES) ?? "[]");
+  } catch {
+    return [];
+  }
+};
+const lembrar = (id: string) => {
+  try {
+    const lista = [id, ...lerRecentes().filter((x) => x !== id)].slice(0, 4);
+    localStorage.setItem(CHAVE_RECENTES, JSON.stringify(lista));
+  } catch {}
+};
+
 export default function LoginPage() {
   const router = useRouter();
   const [selecionado, setSelecionado] = useState<Funcionario | null>(null);
   const [pin, setPin] = useState("");
   const [erro, setErro] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+  const [recentes, setRecentes] = useState<string[]>([]);
+  useEffect(() => setRecentes(lerRecentes()), []);
 
   const { data: funcionarios, isLoading } = useQuery({
     queryKey: ["login", "funcionarios"],
@@ -37,6 +56,7 @@ export default function LoginPage() {
           json: { funcionarioId: selecionado.id, pin: pinCompleto },
         },
       );
+      lembrar(selecionado.id);
       router.replace(
         funcionario.papel === "gerente"
           ? "/gerente"
@@ -84,6 +104,33 @@ export default function LoginPage() {
           {isLoading && (
             <Loader2 className="mx-auto size-8 animate-spin text-texto-secundario" />
           )}
+          {funcionarios &&
+            recentes.some((id) => funcionarios.some((f) => f.id === id)) && (
+              <>
+                <p className="font-semibold text-sm text-texto-secundario">
+                  Neste celular
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  {recentes
+                    .map((id) => funcionarios.find((f) => f.id === id))
+                    .filter((f): f is Funcionario => Boolean(f))
+                    .map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => setSelecionado(f)}
+                        className="flex min-h-20 flex-col items-center justify-center gap-1 rounded-xl border-2 border-acao bg-surface p-3 font-semibold text-lg active:scale-[0.97]"
+                      >
+                        <UserRound className="size-6 text-acao" />
+                        {f.nome}
+                      </button>
+                    ))}
+                </div>
+                <p className="mt-2 font-semibold text-sm text-texto-secundario">
+                  Toda a equipe
+                </p>
+              </>
+            )}
           <div className="grid grid-cols-2 gap-3">
             {funcionarios?.map((f) => (
               <button
