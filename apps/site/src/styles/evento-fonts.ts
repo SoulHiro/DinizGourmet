@@ -19,9 +19,10 @@ export const eventoSans = Montserrat({
 });
 
 // Condensada e pesada, como os nomes dos artistas nos cartazes.
+// Fonte variável: um arquivo só cobre os pesos 200–700. Pedir pesos soltos
+// gerava várias URLs que o build da Vercel (Turbopack) não resolvia.
 export const eventoDisplay = Oswald({
   subsets: ["latin"],
-  weight: ["500", "600", "700"],
   variable: "--font-evento-display",
 });
 
